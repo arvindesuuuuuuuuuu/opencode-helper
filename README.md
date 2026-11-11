@@ -1,88 +1,73 @@
-# ⚡ OpenCode Helper (Linux & Windows)
+# OpenCode Helper
 
-A lightweight, modern dark-themed desktop utility designed to manage OpenCode's daily rate limits, ExpressVPN routes, quota health, and session integrity.
+OpenCode Helper is a desktop utility for Linux and Windows that helps you manage OpenCode rate limits, ExpressVPN locations, and chat sessions.
 
----
+## What it does
 
-## 🌟 Common Features
+- **Clean reset**: Closes running OpenCode processes, clears error banners, and generates new device and session IDs while keeping all your past chat messages and tabs intact.
+- **Quota status**: Checks your current IP address and compares it against your local ledger to let you know if the free quota is ready or rate-limited.
+- **VPN switching**: Lets you switch ExpressVPN server locations directly from the app so you can obtain a new IP address when needed.
+- **Clear banners**: Removes error banners from your sessions without resetting session IDs.
+- **OpenCode launcher**: Starts OpenCode in a separate process without closing the helper window.
+- **Activity log**: Displays command output and status updates in real time so you can see what the tool is doing.
 
-- **🚀 1-Click Clean Reset:**
-  - Safely stops background OpenCode instances (`opencode.exe` on Windows / `ai.opencode` on Linux) without closing the helper itself.
-  - Rotates virtual device IDs and re-sequences sessions while **preserving 100% of all chat history and tabs**.
-- **📊 100% Accurate Quota Meter:**
-  - Probes your live IP and cross-references OpenCode-Unlimited's local ledger (`unlimited-egress.json`).
-  - Displays instant visual badges: `● Ready (Free Tier Available)` (green) or `● Rate-Limited (Switch Region)` (red).
-- **📋 Built-in Quick Instructions Card:**
-  - **1.** If Quota is Limited → Select VPN & click "Switch"
-  - **2.** Click "🚀 1-Click Clean Reset" (Preserves all chats)
-  - **3.** Click "▶ Launch OpenCode" & reopen chat from list
-  - **•** Use "🧹 Clear Banners" if only an error banner is stuck
-- **🌐 ExpressVPN Quick Switcher:**
-  - Switch between high-speed regions (Singapore, Japan, USA, Taiwan, Smart Location) with one click.
-- **📜 Live Activity Log Console:**
-  - Embedded real-time console with timestamps, streaming command outputs, and auto-scrolling.
-  - Dedicated "Clear" button for quick log cleanup.
-  - **The app never exits automatically** after Reset, Clear, or Launch—you can view all output logs and status updates immediately.
+## Quick guide
 
----
+When you run into rate limits:
+1. Select a new VPN location and click **Switch**.
+2. Click **1-Click Clean Reset** to reset device limits while preserving your chats.
+3. Click **Launch OpenCode** and reopen your conversation from the sidebar.
+4. If you only have a stuck error banner, click **Clear Banners** instead.
 
-## 🪟 How to Run on Windows
+## How to run on Windows
 
-Everything is self-contained directly inside this folder:
+You have a few ways to run the helper on Windows:
 
-### Option 1: 1-Click Batch Launcher (Recommended)
-> **No installation or compiler needed.** Works out-of-the-box on every Windows 10 & 11 PC!
+### 1. Batch file (easiest)
+Double-click `OpenCodeHelper.bat`. This uses Windows PowerShell and WPF to open the application without requiring extra tools or setup.
 
-1. Double-click **`OpenCodeHelper.bat`**.
-2. The modern WPF desktop window will appear immediately.
+If you prefer to launch it without a command prompt window appearing, double-click `OpenCodeHelper.vbs`.
 
-*(Optional: You can also double-click **`OpenCodeHelper.vbs`** to launch completely silently without any temporary black command prompt flicker).*
+### 2. Compile to a standalone executable
+If you want a standalone `.exe`:
+1. Double-click `build.bat`. This compiles the application using the built-in Windows C# compiler (`csc.exe`).
+2. Run the newly created `OpenCodeHelper.exe`.
 
-### Option 2: Native Standalone Binary (`OpenCodeHelper.exe`)
-> **Compile into a standalone `.exe` using the Windows built-in C# compiler (`csc.exe`) in 1 second!** No Visual Studio or .NET SDK required.
-
-1. Double-click **`build.bat`**.
-2. Windows will automatically compile `OpenCodeHelper.cs` into `OpenCodeHelper.exe`.
-3. Double-click **`OpenCodeHelper.exe`** to run natively with instant startup!
-
-### Option 3: Python Edition
+### 3. Python script
+If you have Python installed on your machine:
 ```cmd
 python OpenCodeHelper.py
 ```
 
----
+## How to run on Linux
 
-## 🐧 How to Run on Linux (Ubuntu / Debian)
-
-### Option 1: Desktop Application Launcher
-Search for **"OpenCode Manager"** in your Application Menu / Dash, or launch from terminal:
+### 1. Application menu or terminal command
+If installed to your user path, launch it with:
 ```bash
 opencode-manager
 ```
 
-### Option 2: Direct Binary Execution
+### 2. Direct binary
+Run the compiled GTK application directly:
 ```bash
 /home/arvin/Infosoft/opencode-manager/opencode-helper
 ```
 
-### Option 3: Compile from C++ Source
+### 3. Recompile from source
+To rebuild the GTK3 binary from source:
 ```bash
 cd /home/arvin/Infosoft/opencode-manager
-g++ -O3 src/main.cpp `pkg-config --cflags --libs gtk+-3.0` -o opencode-helper -lpthread
+g++ -O3 src/main.cpp $(pkg-config --cflags --libs gtk+-3.0) -o opencode-helper -lpthread
 ```
 
----
+## Files in this repository
 
-## 📁 Repository File Structure
-
-| File | Platform | Purpose |
-| :--- | :--- | :--- |
-| **`OpenCodeHelper.bat`** | Windows | 1-Click launcher for Windows PowerShell WPF GUI. |
-| **`OpenCodeHelper.vbs`** | Windows | Silent 1-Click launcher (no cmd window flash). |
-| **`OpenCodeHelper.ps1`** | Windows | Modern WPF XAML desktop GUI script. |
-| **`OpenCodeHelper.cs`** | Windows | Pure C# WPF source code. |
-| **`build.bat`** | Windows | Builds `OpenCodeHelper.exe` via Windows built-in `csc.exe`. |
-| **`OpenCodeHelper.py`** | Windows / Linux | Standalone Python Tkinter edition. |
-| **`opencode-helper`** | Linux | Compiled native Linux GTK3 binary. |
-| **`src/main.cpp`** | Linux | Linux GTK3 C++ source code. |
-| **`README.md`** | All | Comprehensive guide & documentation. |
+- `OpenCodeHelper.bat`: Windows launcher script using PowerShell WPF.
+- `OpenCodeHelper.vbs`: Silent Windows launcher script.
+- `OpenCodeHelper.ps1`: PowerShell WPF application source.
+- `OpenCodeHelper.cs`: C# WPF application source.
+- `build.bat`: Windows batch script to compile `OpenCodeHelper.cs` into `OpenCodeHelper.exe`.
+- `OpenCodeHelper.py`: Python Tkinter version of the helper.
+- `opencode-helper`: Precompiled Linux GTK3 binary.
+- `src/main.cpp`: Linux GTK3 C++ source code.
+- `README.md`: Documentation.
