@@ -8,7 +8,11 @@ echo ========================================================
 
 :: Detect csc.exe (standard C# compiler shipped with all Windows versions)
 set "CSC=C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-if not exist "%CSC%" set "CSC=C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+set "WPF_DIR=C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF"
+if not exist "%CSC%" (
+    set "CSC=C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+    set "WPF_DIR=C:\Windows\Microsoft.NET\Framework\v4.0.30319\WPF"
+)
 
 if not exist "%CSC%" (
     echo [ERROR] C# compiler csc.exe not found at standard .NET locations.
@@ -18,9 +22,14 @@ if not exist "%CSC%" (
 )
 
 echo Using compiler: %CSC%
-echo Compiling OpenCodeHelper.cs...
+echo Compiling OpenCodeHelper.cs with OpenCode application icon...
+
+set "ICON_PARAM="
+if exist "%~dp0app.ico" set "ICON_PARAM=/win32icon:""%~dp0app.ico"""
 
 "%CSC%" /nologo /target:winexe /out:"%~dp0OpenCodeHelper.exe" /platform:anycpu ^
+    %ICON_PARAM% ^
+    /lib:"%WPF_DIR%" ^
     /r:PresentationFramework.dll ^
     /r:PresentationCore.dll ^
     /r:WindowsBase.dll ^

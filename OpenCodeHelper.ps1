@@ -1,29 +1,56 @@
-#Requires -Version 5.1
-<#
-=============================================================================
- OpenCode Helper (Windows Edition)
- A sleek, modern WPF control center for OpenCode & OpenCode-Unlimited.
- Features:
-   - Live IP & Quota status probing (with ledger accuracy)
-   - 1-Click Clean Reset (preserves all chat sessions & history)
-   - ExpressVPN fast region switching
-   - Instant Banner stripping (clears error banners safely)
-   - Safe OpenCode process management (never terminates helper itself)
-   - Embedded live streaming Activity Log console with auto-scroll
-=============================================================================
+﻿<#
+.SYNOPSIS
+    OpenCode Helper - Production Native GUI for Windows (WPF/PowerShell)
+    Combines OpenCode Unlimited reset workflows, ExpressVPN region switching,
+    and automatic Quota state probing into an ultra-fast, modern dark dashboard.
 #>
 
-Add-Type -AssemblyName PresentationFramework
-Add-Type -AssemblyName PresentationCore
-Add-Type -AssemblyName WindowsBase
-Add-Type -AssemblyName System.Drawing
-Add-Type -AssemblyName System.Web.Extensions
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Drawing, System.Windows.Forms, System.Web.Extensions
 
-[xml]$xaml = @"
+try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
+} catch {}
+
+# Application Icon (Base64 OpenCode Icon)
+$IconBase64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAbt" +
+"SURBVFhHtZdpTJRXG4ZPTKUfGpSdYUAFF0QZZhGYGRGin0isdsERSZc/rWnTNsbGxL9WjQruHySauPwwouISjEQjQUVj4rhhlEXrilJFjZ241IjKC" +
+"JnM3dxP5kxeCGlS7fcmd857tue6zzPnnJlRy5cvH6RCT0FBwXy32+11u90+p9PpdzqdAZfLFXS5XHhPcW4gFMvH2GRoXphdVlYW4Xa76zkpNzcXky" +
+"ZN+teVk5Mjsckgi0xtROXl5Qncbrf3OhyOgMPhCFL9g7yvdDzGJoMsMgXucrnm05nNZiOcJsKy2Wz/iowxQ3F7Q9mYrxwOh5dgm80WMA7mu06bFuv" +
+"924x9A9VZ9jdDFplkK7vd7mOH1WoNWq3W8KCMjAwcPnwYz58/x4MHD/Dw4cN/JM558eIF9u3bh7FjxxIWNkFWiONTVqvVT7A2QNFAeno6zp49iw99" +
+"jh07hlGjRokBHd/A8qvs7OxAdnY2jKKBkSNH4sSJExLE7/ejt7cXPT098v7u3buB5ffLGI7lOD6HDh3CiBEjJGZ/jsViCSiLxRK0WCyshMX0cBLd8" +
+"3n9+jXevn2L3p6ePqsb6KEBjuUcPgdra5GSkiIx+3PIVhMnTkRWVlYfMT00cPToUVmZz+dDd3c3tm7diuLiYng8HpSUlPQR29hXXV0tq/f98YcY3r" +
+"9/vxhgzP4cstWECRPkxSimhwaOHDmC111deNjZCX93NxYtWgSlFAYNGiSlUbpt6dKlYqCzsxNv3rzBvr17xQBj9udkZmZCjR8/Xio0osX0pKamyil" +
+"4+fIl7t+/j66uLixZsgSxsbEYN24cRo8e3Uc8Nexbs2aNjOWcV69eYW9NDcxms8Q0MsgkWzEYG+hGi+mhgbq6OjmG9+7dw8s//xQDiYmJMplAo9iW" +
+"kJCA1atXi+l7d+/KMdyzZ48YYEwjg0yyFc8oG+hGi8GYNu5gfv537tzBs2fPsGzZUqSlpcnlYrf3veF46aSlp2HdunUy9vbt23j69Cl2796N5OTk8" +
+"Iq1yCRbMX1sMK6G7mjg4MGDePz4MW7evIknT56gvLwcU6cWomxeKeZ65qC01IN58+airKwU33zzFWbMmI7KykoZe+PGDSl3VVfDZDJJTCODTLIVLx" +
+"w2MB26pDumrba2VjbTtWvX8OjRI5SvWoXCwimYV+qBZ84XmDtXm/Dg66+/RFHRNDHAsXrOzp07wwaMDJZkK95SrDAd7KDojmnjEfq9owOtra1ytZa" +
+"Xr0L+5DzMKfkMn382C198PhslJZ9KvazMg6lTp4gBjuUcbsQdO3YgKSkpnHLG1yXZijeebtSiIRqoqanB3fZ2XLlyBR0dHWIgL9eGT2cX45OZ0zHr" +
+"kyLMnjVD6nNKZiN/cq4Y4Ka9fPmybMTt27eLAcYcM2aMxGdJJtmKu103arGTaeOlcuvWLTQ1NaG9vV0M2KzjUVxUiOn/zUfR9CmYUVSA4qICzJo5" +
+"DTmOLFRW/k82LedwI27ZskVOjjagRSbZipuNDcYzzU66ZvquX7+O8+fPixEayMwYicIpOcifbEdBviOsaYV5yJqQLga4aTmHG3Hz5s1yPI13Bz97" +
+"MslWTLVu1GInXTN9bW1t8HrP4LffrqOiYhXGjk6C25mFvJxMOA3Kd2YhY0wyqqoqZQOeOXMG165eRVVVFeLj42VRRgaZZCummg0831rspAGmr7m5" +
+"GadPn5agy5b9io8/Ukg1RcIUHwFT/GAkhzQi6T+I/Ehh/bq1aGu7KnNampuxceNGMcBFGRlkkq2Yala4I7VYZ9o2bdqES5cu4dSpU2i62IQDBw7gh" +
+"++/xS8Lf8bCBT/20S8Lf8KPP3yHurpDuHDhgszhRly7di3i4uJkUUYGTZCtEhMTg2zgjtRiJ10zfQx28uRJCXju3Dm0tLSiubllQLW0tsqPGI492" +
+"diIixcvoqKiQr4juCgjg0yyVUJCQoAVfvtp0QBdr1+/Xj7LhoYGHD9+HMcaGlBfX/+34m8IjuUcr9eLFStWiAHGNDJogmwVHx/vZyU1NTXIY0Gxz" +
+"kkbNmyQ3dzY2BjOQh8N1BYS5zB7K1euRExMjKxYxyeLjLi4OL+KjY310VFKSkqQx4QinRlYvHix3AX8IcITQW3bti1cGqX7dR/n7Nq1CwsWLJDF" +
+"EKjjk0UG2WrYsGFeujKbzQF28juAJY9IZGQkIiIiPkhDhgyRWAa4sMgkWw0ePHg+j4PZbO7lQBqg+M7URUVFfZAYQ8dlGXrvJZNs+Xc0dOjQ+tAA" +
+"dgRMJlMwOTk5yEE8Kh8ixgjFogJkkEVm+L+hUiqCDbx8tMv/l8gIwcN/TsN/z5mSqKgo7/Dhw33R0dH+6OjoQExMTJBpfE8FGYOxGJOxw2kPsf8C" +
+"qsOz9AqvMi8AAAAASUVORK5CYII="
+
+# Convert Base64 to ImageSource
+$iconImageSource = $null
+try {
+    $iconBytes = [System.Convert]::FromBase64String($IconBase64)
+    $ms = New-Object System.IO.MemoryStream(,$iconBytes)
+    $decoder = New-Object System.Windows.Media.Imaging.PngBitmapDecoder($ms, [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat, [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)
+    $iconImageSource = $decoder.Frames[0]
+} catch {}
+
+# Window XAML Definition
+$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="OpenCode Helper"
-        Height="540" Width="410"
+        Width="475" Height="440"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         AllowsTransparency="True"
@@ -31,25 +58,139 @@ Add-Type -AssemblyName System.Web.Extensions
         ResizeMode="CanResizeWithGrip">
 
     <Window.Resources>
-        <Style x:Key="TitleBtn" TargetType="Button">
-            <Setter Property="Width" Value="20"/>
-            <Setter Property="Height" Value="20"/>
-            <Setter Property="Margin" Value="2,0,0,0"/>
-            <Setter Property="FontSize" Value="10"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Foreground" Value="#94a3b8"/>
-            <Setter Property="Background" Value="#1a1e2e"/>
-            <Setter Property="BorderBrush" Value="#2a304a"/>
+        <!-- Modern Dark ComboBox ToggleButton Template -->
+        <ControlTemplate x:Key="DarkComboBoxToggleButton" TargetType="ToggleButton">
+            <Border Name="Border" CornerRadius="4" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                <Path Name="Arrow" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0" Fill="#94a3b8" Data="M 0 0 L 4 4 L 8 0 Z"/>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Border" Property="Background" Value="#1a1f32"/>
+                    <Setter TargetName="Border" Property="BorderBrush" Value="#384566"/>
+                    <Setter TargetName="Arrow" Property="Fill" Value="#cbd5e1"/>
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter TargetName="Border" Property="Background" Value="#1a1f32"/>
+                    <Setter TargetName="Border" Property="BorderBrush" Value="#3b82f6"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <!-- Modern Dark ComboBox TextBox Template -->
+        <ControlTemplate x:Key="DarkComboBoxTextBox" TargetType="TextBox">
+            <Border Name="Border" Background="Transparent">
+                <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
+            </Border>
+        </ControlTemplate>
+
+        <!-- Modern Dark ComboBox Style -->
+        <Style TargetType="ComboBox">
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+            <Setter Property="Foreground" Value="#f1f5f9"/>
+            <Setter Property="Background" Value="#10131f"/>
+            <Setter Property="BorderBrush" Value="#22293e"/>
             <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4,8,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton Name="ToggleButton"
+                                          Template="{StaticResource DarkComboBoxToggleButton}"
+                                          Grid.Column="2" Focusable="false"
+                                          IsChecked="{Binding Path=IsDropDownOpen,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}"
+                                          ClickMode="Press"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="{TemplateBinding BorderThickness}"/>
+                            <ContentPresenter Name="ContentSite" IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              VerticalAlignment="Center" HorizontalAlignment="Left"
+                                              Margin="10,0,24,0"/>
+                            <TextBox x:Name="PART_EditableTextBox"
+                                     Style="{x:Null}"
+                                     Template="{StaticResource DarkComboBoxTextBox}"
+                                     HorizontalAlignment="Left" VerticalAlignment="Center"
+                                     Margin="10,0,24,0" Focusable="True"
+                                     Background="Transparent" Foreground="#f1f5f9"
+                                     Visibility="Hidden" IsReadOnly="{TemplateBinding IsReadOnly}"/>
+                            <Popup Name="Popup" Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False"
+                                   PopupAnimation="Slide">
+                                <Grid Name="DropDown"
+                                      SnapsToDevicePixels="True"
+                                      MinWidth="{TemplateBinding ActualWidth}"
+                                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <Border x:Name="DropDownBorder" Background="#0d101a"
+                                            BorderThickness="1" BorderBrush="#2d3754" CornerRadius="4"
+                                            Margin="0,2,0,4">
+                                        <ScrollViewer Margin="2" SnapsToDevicePixels="True">
+                                            <StackPanel IsItemsHost="True"/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Grid>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEditable" Value="True">
+                                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="ContentSite" Property="Visibility" Value="Hidden"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Padding" Value="8,5,8,5"/>
+            <Setter Property="Foreground" Value="#cbd5e1"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border Name="Border" Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="3">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#1e263d"/>
+                                <Setter Property="Foreground" Value="#38bdf8"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#2563eb"/>
+                                <Setter Property="Foreground" Value="#ffffff"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Window Control Buttons (Min/Close) -->
+        <Style x:Key="TitleBtn" TargetType="Button">
+            <Setter Property="Width" Value="26"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="FontSize" Value="9.5"/>
+            <Setter Property="Foreground" Value="#94a3b8"/>
+            <Setter Property="Margin" Value="2,0,0,0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" CornerRadius="10" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                        <Border x:Name="bdr" CornerRadius="3" Background="Transparent">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#334155"/>
+                                <Setter TargetName="bdr" Property="Background" Value="#22293e"/>
                                 <Setter Property="Foreground" Value="#ffffff"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -62,13 +203,12 @@ Add-Type -AssemblyName System.Web.Extensions
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" CornerRadius="10" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                        <Border x:Name="bdr" CornerRadius="3" Background="Transparent">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#ef4444"/>
-                                <Setter TargetName="border" Property="BorderBrush" Value="#f87171"/>
+                                <Setter TargetName="bdr" Property="Background" Value="#dc2626"/>
                                 <Setter Property="Foreground" Value="#ffffff"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -77,18 +217,35 @@ Add-Type -AssemblyName System.Web.Extensions
             </Setter>
         </Style>
 
-        <Style x:Key="MinBtn" TargetType="Button" BasedOn="{StaticResource TitleBtn}">
+        <!-- Refined Titlebar Check Capsule Button -->
+        <Style x:Key="CheckBtn" TargetType="Button">
+            <Setter Property="Height" Value="23"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Foreground" Value="#cbd5e1"/>
+            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="border" CornerRadius="10" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Border x:Name="bdr" CornerRadius="11" Background="#151928" BorderBrush="#2b354d" BorderThickness="1" Padding="8,2,9,2">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <Path x:Name="icon" Width="11" Height="11" Stretch="Uniform" Fill="{TemplateBinding Foreground}" Margin="0,0,5,0" VerticalAlignment="Center"
+                                      Data="M 12 4 V 1 L 8 5 L 12 9 V 6 C 15.31 6 18 8.69 18 12 C 18 13.01 17.75 13.97 17.3 14.8 L 18.8 16.3 C 19.55 15.05 20 13.58 20 12 C 20 7.58 16.42 4 12 4 Z M 12 18 C 8.69 18 6 15.31 6 12 C 6 10.99 6.25 10.03 6.7 9.2 L 5.2 7.7 C 4.45 8.95 4 10.42 4 12 C 4 16.42 7.58 20 12 20 V 23 L 16 19 L 12 15 V 18 Z" />
+                                <TextBlock x:Name="txt" Text="Check" FontSize="9.5" FontWeight="SemiBold" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center"/>
+                            </StackPanel>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#f59e0b"/>
-                                <Setter TargetName="border" Property="BorderBrush" Value="#fbbf24"/>
+                                <Setter TargetName="bdr" Property="Background" Value="#1f283e"/>
+                                <Setter TargetName="bdr" Property="BorderBrush" Value="#38bdf8"/>
                                 <Setter Property="Foreground" Value="#ffffff"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bdr" Property="Background" Value="#161d2f"/>
+                                <Setter TargetName="bdr" Property="BorderBrush" Value="#0284c7"/>
+                                <Setter TargetName="bdr" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bdr" Property="Opacity" Value="0.45"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -96,27 +253,26 @@ Add-Type -AssemblyName System.Web.Extensions
             </Setter>
         </Style>
 
+        <!-- General Action Buttons -->
         <Style x:Key="PrimaryBtn" TargetType="Button">
             <Setter Property="Background" Value="#2563eb"/>
             <Setter Property="Foreground" Value="#ffffff"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="9.5"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="#3b82f6"/>
-            <Setter Property="Padding" Value="10,5"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="bdr" CornerRadius="5" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                        <Border x:Name="bdr" CornerRadius="4" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="bdr" Property="Background" Value="#3b82f6"/>
-                                <Setter TargetName="bdr" Property="BorderBrush" Value="#60a5fa"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bdr" Property="Background" Value="#1d4ed8"/>
+                                <Setter TargetName="bdr" Property="Opacity" Value="0.85"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -128,10 +284,9 @@ Add-Type -AssemblyName System.Web.Extensions
             <Setter Property="Background" Value="#16a34a"/>
             <Setter Property="Foreground" Value="#ffffff"/>
             <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontSize" Value="9.5"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="#22c55e"/>
-            <Setter Property="Padding" Value="8,4"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -141,10 +296,9 @@ Add-Type -AssemblyName System.Web.Extensions
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="bdr" Property="Background" Value="#22c55e"/>
-                                <Setter TargetName="bdr" Property="BorderBrush" Value="#4ade80"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bdr" Property="Background" Value="#15803d"/>
+                                <Setter TargetName="bdr" Property="Opacity" Value="0.85"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -153,13 +307,12 @@ Add-Type -AssemblyName System.Web.Extensions
         </Style>
 
         <Style x:Key="DarkBtn" TargetType="Button">
-            <Setter Property="Background" Value="#1b1e2c"/>
+            <Setter Property="Background" Value="#141724"/>
             <Setter Property="Foreground" Value="#cbd5e1"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontSize" Value="9.5"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#2a2f45"/>
-            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="BorderBrush" Value="#22293e"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -168,12 +321,11 @@ Add-Type -AssemblyName System.Web.Extensions
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bdr" Property="Background" Value="#252a3f"/>
-                                <Setter TargetName="bdr" Property="BorderBrush" Value="#3d4566"/>
+                                <Setter TargetName="bdr" Property="Background" Value="#1e2438"/>
                                 <Setter Property="Foreground" Value="#ffffff"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="bdr" Property="Background" Value="#141724"/>
+                                <Setter TargetName="bdr" Property="Opacity" Value="0.85"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -183,9 +335,15 @@ Add-Type -AssemblyName System.Web.Extensions
     </Window.Resources>
 
     <!-- Main Outer Window Surface with Drop Shadow -->
-    <Border CornerRadius="10" Background="#0c0d14" BorderBrush="#1e2235" BorderThickness="1" Margin="8">
+    <Border CornerRadius="10" BorderBrush="#1d2238" BorderThickness="1" Margin="8">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#0e101a" Offset="0"/>
+                <GradientStop Color="#0a0b12" Offset="1"/>
+            </LinearGradientBrush>
+        </Border.Background>
         <Border.Effect>
-            <DropShadowEffect Color="#000000" BlurRadius="18" ShadowDepth="4" Opacity="0.75"/>
+            <DropShadowEffect Color="#000000" BlurRadius="16" ShadowDepth="3" Opacity="0.75"/>
         </Border.Effect>
 
         <Grid>
@@ -195,11 +353,11 @@ Add-Type -AssemblyName System.Web.Extensions
             </Grid.RowDefinitions>
 
             <!-- 1. CUSTOM SLEEK TITLEBAR (Draggable) -->
-            <Border Name="titleBar" Grid.Row="0" CornerRadius="9,9,0,0" Height="36" Padding="12,0" BorderBrush="#1e2235" BorderThickness="0,0,0,1">
+            <Border Name="titleBar" Grid.Row="0" CornerRadius="9,9,0,0" Height="34" Padding="12,0,10,0" BorderBrush="#1a1e32" BorderThickness="0,0,0,1">
                 <Border.Background>
                     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#161826" Offset="0"/>
-                        <GradientStop Color="#12141f" Offset="1"/>
+                        <GradientStop Color="#141726" Offset="0"/>
+                        <GradientStop Color="#0f121e" Offset="1"/>
                     </LinearGradientBrush>
                 </Border.Background>
 
@@ -213,16 +371,19 @@ Add-Type -AssemblyName System.Web.Extensions
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Grid.Column="0" Text="⚡ OpenCode Helper" FontWeight="Bold" FontSize="11.5" Foreground="#f8fafc" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Image Name="titleIcon" Width="16" Height="16" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="OpenCode Helper" FontWeight="Bold" FontSize="11.5" Foreground="#f1f5f9" VerticalAlignment="Center"/>
+                    </StackPanel>
 
-                    <!-- Check Button -->
-                    <Button Name="btnCheck" Grid.Column="2" Content="🔄 Check" Style="{StaticResource DarkBtn}" Height="20" Padding="8,1" FontSize="9.5" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <!-- Refined Capsule Check Button -->
+                    <Button Name="btnCheck" Grid.Column="2" Style="{StaticResource CheckBtn}" VerticalAlignment="Center"/>
 
                     <!-- Divider -->
-                    <Rectangle Grid.Column="3" Width="1" Height="14" Fill="#272c44" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <Rectangle Grid.Column="3" Width="1" Height="14" Fill="#1e2438" Margin="0,0,6,0" VerticalAlignment="Center"/>
 
                     <!-- Minimize -->
-                    <Button Name="btnMin" Grid.Column="4" Content="─" Style="{StaticResource MinBtn}" VerticalAlignment="Center"/>
+                    <Button Name="btnMin" Grid.Column="4" Content="—" Style="{StaticResource TitleBtn}" VerticalAlignment="Center"/>
 
                     <!-- Close -->
                     <Button Name="btnClose" Grid.Column="5" Content="✕" Style="{StaticResource CloseBtn}" VerticalAlignment="Center"/>
@@ -230,113 +391,138 @@ Add-Type -AssemblyName System.Web.Extensions
             </Border>
 
             <!-- 2. CONTENT AREA -->
-            <StackPanel Grid.Row="1" Margin="10,8,10,8">
+            <StackPanel Grid.Row="1" Margin="14,10,14,8">
                 <!-- HERO STATUS CARD -->
-                <Border CornerRadius="7" Background="#141624" BorderBrush="#202436" BorderThickness="1" Padding="10,7" Margin="0,0,0,4">
-                    <StackPanel>
-                        <TextBlock Name="lblIp" Text="🌐 Checking network..." FontFamily="Consolas" FontSize="10" Foreground="#94a3b8" Margin="0,0,0,3"/>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Quota:" FontSize="9.5" FontWeight="SemiBold" Foreground="#8a99ad" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                            <Border Name="badgeQuota" CornerRadius="10" Background="#331d24" BorderBrush="#fb7185" BorderThickness="1" Padding="7,1" VerticalAlignment="Center">
-                                <TextBlock Name="lblQuota" Text="● Checking..." FontSize="9" FontWeight="SemiBold" Foreground="#fb7185"/>
-                            </Border>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- QUICK INSTRUCTIONS CARD -->
-                <Border CornerRadius="6" Background="#10121d" BorderBrush="#1c2033" BorderThickness="1" Padding="9,6" Margin="0,0,0,4">
-                    <StackPanel>
-                        <TextBlock Text="📋 Quick Instructions:" FontSize="9.5" FontWeight="Bold" Foreground="#93c5fd" Margin="0,0,0,2"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,1">
-                            <TextBlock Text="1." FontSize="9" FontWeight="Bold" Foreground="#60a5fa" Width="14"/>
-                            <TextBlock Text="If Quota is Limited → Select VPN &amp; click 'Switch'" FontSize="9" Foreground="#cbd5e1"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,1">
-                            <TextBlock Text="2." FontSize="9" FontWeight="Bold" Foreground="#60a5fa" Width="14"/>
-                            <TextBlock Text="Click '🚀 1-Click Clean Reset' (Preserves all chats)" FontSize="9" Foreground="#cbd5e1"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,1">
-                            <TextBlock Text="3." FontSize="9" FontWeight="Bold" Foreground="#60a5fa" Width="14"/>
-                            <TextBlock Text="Click '▶ Launch OpenCode' &amp; reopen chat from list" FontSize="9" Foreground="#cbd5e1"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                            <TextBlock Text="•" FontSize="8.5" Foreground="#64748b" Width="14"/>
-                            <TextBlock Text="Use '🧹 Clear Banners' if only an error banner is stuck" FontSize="8.5" FontStyle="Italic" Foreground="#64748b"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- CONTROLS: VPN & PROJECT -->
-                <StackPanel Margin="0,0,0,4">
-                    <!-- VPN Row -->
-                    <Grid Margin="0,0,0,3">
+                <Border CornerRadius="5" Background="#121522" BorderBrush="#1d2338" BorderThickness="1" Height="36" Padding="11,0,10,0" Margin="0,0,0,6">
+                    <Grid VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="48"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="VPN:" FontSize="9.5" FontWeight="SemiBold" Foreground="#8a99ad" VerticalAlignment="Center"/>
-                        <ComboBox Name="comboVpn" Grid.Column="1" Height="22" Background="#141622" Foreground="#000000" FontSize="9.5" Margin="0,0,4,0"/>
-                        <Button Name="btnSwitchVpn" Grid.Column="2" Content="Switch" Style="{StaticResource PrimaryBtn}" Height="22" Padding="8,1" FontSize="9.5"/>
-                    </Grid>
+                        
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Width="12" Height="12" Stretch="Uniform" Fill="#64748b" Margin="0,0,7,0" VerticalAlignment="Center"
+                                  Data="M 12 2 A 10 10 0 1 0 12 22 A 10 10 0 1 0 12 2 Z M 3.93 13 A 8.04 8.04 0 0 1 4 11 H 7.92 C 7.97 11.68 8.07 12.35 8.22 13 H 3.93 Z M 8.22 11 H 4 C 4.09 9.97 4.41 9 4.93 8.16 L 8.35 9.53 C 8.26 10.01 8.22 10.5 8.22 11 Z M 12 4.07 C 12.8 5.16 13.43 6.51 13.82 8 H 10.18 C 10.57 6.51 11.2 5.16 12 4.07 Z M 10.11 11 C 10.11 10.33 10.17 9.66 10.28 9 H 13.72 C 13.83 9.66 13.89 10.33 13.89 11 C 13.89 11.67 13.83 12.34 13.72 13 H 10.28 C 10.17 12.34 10.11 11.67 10.11 11 Z M 12 19.93 C 11.2 18.84 10.57 17.49 10.18 16 H 13.82 C 13.43 17.49 12.8 18.84 12 19.93 Z" />
+                            <TextBlock Name="lblIp" Text="Probing network status..." FontFamily="Consolas, Segoe UI" FontSize="9.5" Foreground="#94a3b8" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
 
-                    <!-- Project Row -->
+                        <!-- Modern Glowing Status Chip -->
+                        <Border Name="badgeQuota" Grid.Column="1" CornerRadius="11" Height="22" Background="#0d1f33" BorderBrush="#0284c7" BorderThickness="1" Padding="9,0,11,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Grid Width="10" Height="10" Margin="0,0,6,0" VerticalAlignment="Center">
+                                    <Ellipse Name="dotQuotaHalo" Width="10" Height="10" Fill="#7dd3fc" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Ellipse Name="dotQuotaInner" Width="6" Height="6" Fill="#38bdf8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Grid>
+                                <TextBlock Name="lblQuota" Text="Checking" FontSize="9.0" FontWeight="SemiBold" Foreground="#93c5fd" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- QUICK INSTRUCTIONS COLLAPSIBLE DRAWER -->
+                <Border CornerRadius="4" Background="#0e111d" BorderBrush="#191e32" BorderThickness="1" Margin="0,0,0,6" Padding="8,5,8,5">
+                    <StackPanel>
+                        <Grid Name="guideHeader" Cursor="Hand">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="💡 Workflow: Switch VPN → Clean Reset → Launch OpenCode" FontSize="9.0" Foreground="#60a5fa" VerticalAlignment="Center"/>
+                            <TextBlock Name="lblGuideToggle" Grid.Column="1" Text="▾ Details" FontSize="8.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>
+                        </Grid>
+                        <Border Name="guideBody" Visibility="Collapsed" Margin="0,6,0,2" Padding="2,4,2,0" BorderBrush="#1a2035" BorderThickness="0,1,0,0">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,1.5">
+                                    <TextBlock Text="1." FontSize="9.0" FontWeight="Bold" Foreground="#60a5fa" Width="16"/>
+                                    <TextBlock Text="If Quota is Limited → Select VPN &amp; click 'Switch'" FontSize="9.0" Foreground="#cbd5e1"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,1.5">
+                                    <TextBlock Text="2." FontSize="9.0" FontWeight="Bold" Foreground="#60a5fa" Width="16"/>
+                                    <TextBlock Text="Click '⚡ 1-Click Clean Reset' (Preserves chat history &amp; tabs)" FontSize="9.0" Foreground="#cbd5e1"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,1.5">
+                                    <TextBlock Text="3." FontSize="9.0" FontWeight="Bold" Foreground="#60a5fa" Width="16"/>
+                                    <TextBlock Text="Click '▶ Launch OpenCode' &amp; reopen your session from list" FontSize="9.0" Foreground="#cbd5e1"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                    <TextBlock Text="•" FontSize="9.0" FontWeight="Bold" Foreground="#94a3b8" Width="16"/>
+                                    <TextBlock Text="Use 'Clear Banners' if only an error banner is stuck" FontSize="8.5" FontStyle="Italic" Foreground="#94a3b8"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- CONTROLS -->
+                <StackPanel Margin="0,0,0,6">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="48"/>
+                            <ColumnDefinition Width="46"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="Project:" FontSize="9.5" FontWeight="SemiBold" Foreground="#8a99ad" VerticalAlignment="Center"/>
-                        <ComboBox Name="comboProj" Grid.Column="1" IsEditable="True" Height="22" Background="#141622" Foreground="#000000" FontSize="9.5" Margin="0,0,4,0"/>
-                        <Button Name="btnBrowseProj" Grid.Column="2" Content="📁 Browse" Style="{StaticResource DarkBtn}" Height="22" Padding="6,1" FontSize="9"/>
+                        <TextBlock Grid.Column="0" Text="Path" FontSize="9.5" FontWeight="SemiBold" Foreground="#64748b" VerticalAlignment="Center"/>
+                        <ComboBox Name="comboProj" Grid.Column="1" IsEditable="True" Height="26" FontSize="9.5" Margin="0,0,4,0"/>
+                        <Button Name="btnAutoProj" Grid.Column="2" Content="Auto" Style="{StaticResource DarkBtn}" Width="46" Height="26" Margin="0,0,4,0" ToolTip="Auto-detect active project from OpenCode"/>
+                        <Button Name="btnBrowseProj" Grid.Column="3" Content="Browse" Style="{StaticResource DarkBtn}" Width="60" Height="26" ToolTip="Browse for a project directory"/>
                     </Grid>
                 </StackPanel>
 
-                <!-- ACTION BUTTONS -->
-                <StackPanel Margin="0,0,0,4">
-                    <!-- 1-Click Clean Reset -->
-                    <Button Name="btnReset" Content="🚀 1-Click Clean Reset" Style="{StaticResource PrimaryBtn}" Height="28" FontSize="10.5" Margin="0,0,0,3"/>
-
-                    <!-- Clear Banners & Launch Row -->
+                <!-- ACTION DECK -->
+                <StackPanel Margin="0,2,0,6">
+                    <Button Name="btnReset" Content="⚡ 1-Click Clean Reset" Style="{StaticResource PrimaryBtn}" Height="32" FontSize="10.5" FontWeight="Bold" Margin="0,0,0,5"/>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="4"/>
+                            <ColumnDefinition Width="8"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button Name="btnClear" Grid.Column="0" Content="🧹 Clear Banners" Style="{StaticResource DarkBtn}" Height="24" FontSize="9.5"/>
-                        <Button Name="btnLaunch" Grid.Column="2" Content="▶ Launch OpenCode" Style="{StaticResource SuccessBtn}" Height="24" FontSize="9.5"/>
+                        <Button Name="btnClear" Grid.Column="0" Content="🧹 Clear Banners" Style="{StaticResource DarkBtn}" Height="28" FontSize="9.5"/>
+                        <Button Name="btnLaunch" Grid.Column="2" Content="▶ Launch OpenCode" Style="{StaticResource SuccessBtn}" Height="28" FontSize="9.5"/>
                     </Grid>
                 </StackPanel>
 
-                <!-- ACTIVITY LOG CONSOLE -->
-                <Grid Margin="0,2,0,2">
+                <!-- LOG HEADER -->
+                <Grid Margin="0,4,0,3">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Activity Log:" FontSize="9.5" FontWeight="Bold" Foreground="#94a3b8" VerticalAlignment="Center"/>
-                    <Button Name="btnClearLog" Grid.Column="1" Content="Clear" Style="{StaticResource DarkBtn}" Height="17" Padding="6,0" FontSize="8.5"/>
+                    <TextBlock Grid.Column="0" Text="ACTIVITY LOG" FontSize="8.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>
+                    <Button Name="btnClearLog" Grid.Column="1" Content="Clear" Style="{StaticResource DarkBtn}" Height="18" Padding="6,0" FontSize="8.0"/>
                 </Grid>
 
-                <Border CornerRadius="5" Background="#07080e" BorderBrush="#1c2033" BorderThickness="1" Height="105" Padding="4">
+                <Border CornerRadius="4" Background="#07080f" BorderBrush="#181c2d" BorderThickness="1" Height="105" Padding="5,4,5,4">
                     <TextBox Name="txtLog" Background="Transparent" Foreground="#94a3b8" BorderThickness="0"
                              FontFamily="Consolas, monospace" FontSize="8.5" TextWrapping="Wrap"
                              IsReadOnly="True" VerticalScrollBarVisibility="Auto"/>
                 </Border>
 
                 <!-- STATUS FOOTER -->
-                <TextBlock Name="lblStatus" Text="● Idle" FontFamily="Consolas" FontSize="9" Foreground="#586579" Margin="2,4,0,0"/>
+                <Grid Margin="2,5,2,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Name="lblStatus" Grid.Column="0" Text="● Idle" FontFamily="Consolas" FontSize="8.5" Foreground="#475569" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="v1.2" FontSize="8.0" Foreground="#334155" VerticalAlignment="Center"/>
+                </Grid>
             </StackPanel>
         </Grid>
     </Border>
 </Window>
 "@
 
-$reader = (New-Object System.Xml.XmlNodeReader $xaml)
+$reader = (New-Object System.Xml.XmlNodeReader ([xml]$xaml))
 $window = [System.Windows.Markup.XamlReader]::Load($reader)
+
+# Set Application Icon
+if ($iconImageSource) {
+    $window.Icon = $iconImageSource
+    $titleIcon = $window.FindName("titleIcon")
+    if ($titleIcon) { $titleIcon.Source = $iconImageSource }
+}
 
 # Map UI Elements
 $titleBar      = $window.FindName("titleBar")
@@ -346,9 +532,13 @@ $btnCheck      = $window.FindName("btnCheck")
 $lblIp         = $window.FindName("lblIp")
 $lblQuota      = $window.FindName("lblQuota")
 $badgeQuota    = $window.FindName("badgeQuota")
-$comboVpn      = $window.FindName("comboVpn")
-$btnSwitchVpn  = $window.FindName("btnSwitchVpn")
+$dotQuotaHalo  = $window.FindName("dotQuotaHalo")
+$dotQuotaInner = $window.FindName("dotQuotaInner")
+$guideHeader   = $window.FindName("guideHeader")
+$guideBody     = $window.FindName("guideBody")
+$lblGuideToggle= $window.FindName("lblGuideToggle")
 $comboProj     = $window.FindName("comboProj")
+$btnAutoProj   = $window.FindName("btnAutoProj")
 $btnBrowseProj = $window.FindName("btnBrowseProj")
 $btnReset      = $window.FindName("btnReset")
 $btnClear      = $window.FindName("btnClear")
@@ -357,21 +547,171 @@ $btnClearLog   = $window.FindName("btnClearLog")
 $txtLog        = $window.FindName("txtLog")
 $lblStatus     = $window.FindName("lblStatus")
 
-# Populate VPN Regions
-$regions = @(
-    "singapore-jurong", "singapore-cbd", "japan-tokyo",
-    "japan-shibuya", "usa-new-york", "usa-los-angeles", "taiwan-3", "smart"
-)
-foreach ($r in $regions) { [void]$comboVpn.Items.Add($r) }
-$comboVpn.SelectedIndex = 0
+if ($guideHeader) {
+    $guideHeader.Add_MouseLeftButtonDown({
+        if ($guideBody.Visibility -eq [System.Windows.Visibility]::Visible) {
+            $guideBody.Visibility = [System.Windows.Visibility]::Collapsed
+            $lblGuideToggle.Text = "▾ Details"
+            $window.Height = 405
+        } else {
+            $guideBody.Visibility = [System.Windows.Visibility]::Visible
+            $lblGuideToggle.Text = "▴ Hide"
+            $window.Height = 470
+        }
+    })
+}
 
-# Populate Project Paths
+$script:lastKnownIp = $null
+
+# Project Auto-Detection Function
+function Refresh-ProjectList {
+    param([bool]$LogOutput = $false)
+
+    try {
+        $dbPath = "$env:APPDATA\ai.opencode.desktop\drafts.sqlite"
+        $activeDir = $null
+        $detectedDirs = [System.Collections.Generic.List[string]]::new()
+
+        if (Test-Path $dbPath) {
+            $code = @"
+using System;
+using System.Runtime.InteropServices;
+public static class WinSqliteDetector {
+    [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_open_v2", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int sqlite3_open_v2(byte[] filename, out IntPtr ppDb, int flags, IntPtr zVfs);
+    [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_prepare_v2", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int sqlite3_prepare_v2(IntPtr db, byte[] zSql, int nByte, out IntPtr ppStmt, IntPtr zTail);
+    [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_step", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int sqlite3_step(IntPtr pStmt);
+    [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_text", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr sqlite3_column_text(IntPtr pStmt, int iCol);
+    [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_finalize", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int sqlite3_finalize(IntPtr pStmt);
+    [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_close_v2", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int sqlite3_close_v2(IntPtr db);
+}
+"@
+            if (-not ([System.Management.Automation.PSTypeName]'WinSqliteDetector').Type) {
+                Add-Type -TypeDefinition $code -Language CSharp
+            }
+
+            [IntPtr]$db = [IntPtr]::Zero
+            $dbBytes = [System.Text.Encoding]::UTF8.GetBytes("$dbPath`0")
+            if ([WinSqliteDetector]::sqlite3_open_v2($dbBytes, [ref]$db, 1, [IntPtr]::Zero) -eq 0 -and $db -ne [IntPtr]::Zero) {
+                $sql = "SELECT key, value FROM state WHERE name LIKE 'opencode.window%.dat' AND key IN ('tabs.recent', 'tabs.info', 'tabs.closed') ORDER BY updated_at DESC;"
+                $sqlBytes = [System.Text.Encoding]::UTF8.GetBytes("$sql`0")
+                [IntPtr]$stmt = [IntPtr]::Zero
+                if ([WinSqliteDetector]::sqlite3_prepare_v2($db, $sqlBytes, -1, [ref]$stmt, [IntPtr]::Zero) -eq 0 -and $stmt -ne [IntPtr]::Zero) {
+                    $activeKey = $null
+                    $tabsInfoJson = $null
+                    $tabsClosedJson = $null
+
+                    while ([WinSqliteDetector]::sqlite3_step($stmt) -eq 100) {
+                        $keyPtr = [WinSqliteDetector]::sqlite3_column_text($stmt, 0)
+                        $valPtr = [WinSqliteDetector]::sqlite3_column_text($stmt, 1)
+                        $k = [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi($keyPtr)
+                        $v = [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi($valPtr)
+                        if ($k -eq "tabs.recent" -and -not $activeKey) {
+                            try {
+                                $parsed = $v | ConvertFrom-Json
+                                if ($parsed.key) { $activeKey = $parsed.key }
+                            } catch {}
+                        } elseif ($k -eq "tabs.info" -and -not $tabsInfoJson) {
+                            $tabsInfoJson = $v
+                        } elseif ($k -eq "tabs.closed" -and -not $tabsClosedJson) {
+                            $tabsClosedJson = $v
+                        }
+                    }
+                    [WinSqliteDetector]::sqlite3_finalize($stmt) | Out-Null
+                    [WinSqliteDetector]::sqlite3_close_v2($db) | Out-Null
+
+                    if ($tabsInfoJson) {
+                        try {
+                            $infoObj = $tabsInfoJson | ConvertFrom-Json
+                            if ($activeKey -and $infoObj.$activeKey -and $infoObj.$activeKey.directory) {
+                                $act = $infoObj.$activeKey.directory
+                                if (Test-Path $act) { $activeDir = $act }
+                            }
+                            foreach ($prop in $infoObj.PSObject.Properties) {
+                                $d = $prop.Value.directory
+                                if ($d -and (Test-Path $d) -and -not $detectedDirs.Contains($d)) {
+                                    $detectedDirs.Add($d)
+                                }
+                            }
+                        } catch {}
+                    }
+
+                    if ($tabsClosedJson) {
+                        try {
+                            $closedList = $tabsClosedJson | ConvertFrom-Json
+                            foreach ($item in $closedList) {
+                                if ($item.info -and $item.info.directory) {
+                                    $d = $item.info.directory
+                                    if ($d -and (Test-Path $d) -and -not $detectedDirs.Contains($d)) {
+                                        $detectedDirs.Add($d)
+                                    }
+                                }
+                            }
+                        } catch {}
+                    }
+                } else {
+                    [WinSqliteDetector]::sqlite3_close_v2($db) | Out-Null
+                }
+            }
+        }
+
+        $current = $comboProj.Text
+        $comboProj.Items.Clear()
+
+        [void]$comboProj.Items.Add("All Workspaces (All Sessions)")
+
+        if ($activeDir -and (Test-Path $activeDir)) {
+            [void]$comboProj.Items.Add($activeDir)
+        }
+
+        foreach ($d in $detectedDirs) {
+            if ((Test-Path $d) -and -not $comboProj.Items.Contains($d)) {
+                [void]$comboProj.Items.Add($d)
+            }
+        }
+
+        if ((Test-Path "D:\trickcal-launcher") -and -not $comboProj.Items.Contains("D:\trickcal-launcher")) {
+            [void]$comboProj.Items.Add("D:\trickcal-launcher")
+        }
+        $devPath = Join-Path $userHome "Projects"
+        if ((Test-Path $devPath) -and -not $comboProj.Items.Contains($devPath)) {
+            [void]$comboProj.Items.Add($devPath)
+        }
+        if (-not $comboProj.Items.Contains($userHome)) {
+            [void]$comboProj.Items.Add($userHome)
+        }
+
+        if ($activeDir -and (Test-Path $activeDir)) {
+            $comboProj.Text = $activeDir
+            if ($LogOutput) {
+                Append-Log "✔ Auto-detected active project: $activeDir"
+                Set-Status "● Project: $(Split-Path -Leaf $activeDir)"
+            }
+        } elseif ($current -and (Test-Path $current)) {
+            $comboProj.Text = $current
+        } elseif ($comboProj.Items.Count -gt 0) {
+            $comboProj.SelectedIndex = 0
+        }
+    } catch {
+        if ($LogOutput) { Append-Log "Project detection note: $($_.Exception.Message)" }
+    }
+}
+
 $userHome = [Environment]::GetFolderPath("UserProfile")
 if (-not $userHome) { $userHome = $env:USERPROFILE }
-[void]$comboProj.Items.Add($userHome)
-$devPath = Join-Path $userHome "Projects"
-if (Test-Path $devPath) { [void]$comboProj.Items.Add($devPath) }
-$comboProj.Text = $userHome
+Refresh-ProjectList $true
+
+$btnAutoProj.Add_Click({
+    Refresh-ProjectList $true
+})
+$comboProj.Add_DropDownOpened({
+    Refresh-ProjectList $false
+})
 
 # Paths for OpenCode-Unlimited
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
@@ -398,25 +738,51 @@ $vpnCandidates = @(
 foreach ($v in $vpnCandidates) {
     if (Test-Path $v) { $script:expressVpnPath = $v; break }
 }
-if (-not $script:expressVpnPath) {
-    $found = Get-Command "expressvpn" -ErrorAction SilentlyContinue
-    if ($found) { $script:expressVpnPath = $found.Source }
-}
 
-# Logger
-function Append-Log([string]$text) {
+# Logging Helpers
+function Append-Log([string]$message) {
     $time = (Get-Date).ToString("[HH:mm:ss] ")
-    $txtLog.AppendText($time + $text + "`r`n")
+    $txtLog.AppendText($time + $message + [Environment]::NewLine)
     $txtLog.ScrollToEnd()
 }
 
-function Append-RawLog([string]$text) {
-    $txtLog.AppendText("  " + $text + "`r`n")
+function Append-RawLog([string]$line) {
+    $txtLog.AppendText("  " + $line + [Environment]::NewLine)
     $txtLog.ScrollToEnd()
 }
 
 function Set-Status([string]$status) {
     $lblStatus.Text = $status
+}
+
+function Update-QuotaBadge([string]$state, [string]$text) {
+    $bc = [System.Windows.Media.BrushConverter]::new()
+    $lblQuota.Text = $text
+    if ($state -eq "ready") {
+        $badgeQuota.Background = $bc.ConvertFromString("#06281e")
+        $badgeQuota.BorderBrush = $bc.ConvertFromString("#0d7355")
+        $dotQuotaHalo.Fill = $bc.ConvertFromString("#34d399")
+        $dotQuotaInner.Fill = $bc.ConvertFromString("#10b981")
+        $lblQuota.Foreground = $bc.ConvertFromString("#34d399")
+    } elseif ($state -eq "limited") {
+        $badgeQuota.Background = $bc.ConvertFromString("#2c1219")
+        $badgeQuota.BorderBrush = $bc.ConvertFromString("#9f1239")
+        $dotQuotaHalo.Fill = $bc.ConvertFromString("#fb7185")
+        $dotQuotaInner.Fill = $bc.ConvertFromString("#f43f5e")
+        $lblQuota.Foreground = $bc.ConvertFromString("#fda4af")
+    } elseif ($state -eq "offline") {
+        $badgeQuota.Background = $bc.ConvertFromString("#241217")
+        $badgeQuota.BorderBrush = $bc.ConvertFromString("#881337")
+        $dotQuotaHalo.Fill = $bc.ConvertFromString("#f87171")
+        $dotQuotaInner.Fill = $bc.ConvertFromString("#ef4444")
+        $lblQuota.Foreground = $bc.ConvertFromString("#fca5a5")
+    } else {
+        $badgeQuota.Background = $bc.ConvertFromString("#0d1f33")
+        $badgeQuota.BorderBrush = $bc.ConvertFromString("#0284c7")
+        $dotQuotaHalo.Fill = $bc.ConvertFromString("#7dd3fc")
+        $dotQuotaInner.Fill = $bc.ConvertFromString("#38bdf8")
+        $lblQuota.Foreground = $bc.ConvertFromString("#93c5fd")
+    }
 }
 
 # Window Draggable & Title Buttons
@@ -450,9 +816,12 @@ $btnBrowseProj.Add_Click({
 })
 
 # Network & Quota Probe
-function Check-StatusAsync {
-    Append-Log "Probing IP & OpenCode gateway status..."
-    Set-Status "● Probing gateway..."
+function Check-StatusAsync([bool]$Silent = $false) {
+    if (-not $Silent) {
+        Append-Log "Probing IP & OpenCode gateway status..."
+        Set-Status "● Probing gateway..."
+        Update-QuotaBadge "probing" "Checking"
+    }
 
     $client = New-Object System.Net.WebClient
     $client.Headers.Add("User-Agent", "curl/8.0")
@@ -460,15 +829,14 @@ function Check-StatusAsync {
     $eventHandler = {
         param($sender, $e)
         if ($e.Error -ne $null) {
-            $window.Dispatcher.Invoke([Action]{
-                $lblIp.Text = "🌐 Offline / Connection Error"
-                $lblQuota.Text = "● Connection Error"
-                $lblQuota.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fb7185")
-                $badgeQuota.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#331d24")
-                $badgeQuota.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fb7185")
-                Set-Status "● Idle"
-                Append-Log "Network error: $($e.Error.Message)"
-            })
+            if (-not $Silent) {
+                $window.Dispatcher.Invoke([Action]{
+                    $lblIp.Text = "Offline / Connection Error"
+                    Update-QuotaBadge "offline" "Offline"
+                    Set-Status "● Awaiting network / VPN..."
+                    Append-Log "Network error: $($e.Error.Message)"
+                })
+            }
             return
         }
 
@@ -478,72 +846,143 @@ function Check-StatusAsync {
             $ip = $data["ip"]
             $city = $data["city"]
             $country = $data["country"]
-            $ipText = "🌐 $ip  •  $city, $country"
+            $ipText = "$ip  •  $city, $country"
 
-            # Check quota against ledger
-            $isSpent = $false
-            $egressFile = Join-Path $userHome ".config\opencode\unlimited-egress.json"
-            if (Test-Path $egressFile) {
-                try {
-                    $raw = [System.IO.File]::ReadAllText($egressFile)
-                    $egress = $jser.DeserializeObject($raw)
-                    $today = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
-                    if ($egress["day"] -eq $today -and $egress["addresses"] -ne $null) {
-                        $addr = $egress["addresses"]
-                        $ipKey = "$ip/32"
-                        if ($addr.ContainsKey($ipKey) -and $addr[$ipKey]["spent"] -eq $true) {
-                            $isSpent = $true
+            $ipChanged = ($script:lastKnownIp -and $script:lastKnownIp -ne $ip)
+            if ($Silent -and -not $ipChanged) {
+                return
+            }
+
+            if ($ipChanged) {
+                $window.Dispatcher.Invoke([Action]{
+                    Append-Log "🔄 Connection change detected: $ipText"
+                })
+            }
+            $script:lastKnownIp = $ip
+
+            # Direct OpenCode gateway probe
+            $isRateLimited = $false
+            $quotaDetails = "Ready (Free Tier Available)"
+
+            try {
+                $req = [System.Net.HttpWebRequest]::Create("https://opencode.ai/inference/openai/v1/chat/completions")
+                $req.Method = "POST"
+                $req.ContentType = "application/json"
+                $req.UserAgent = "curl/8.0"
+                $req.Timeout = 4000
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"model":"deepseek-v4.1-flash-free","messages":[{"role":"user","content":"hi"}]}')
+                $req.ContentLength = $bytes.Length
+                $st = $req.GetRequestStream()
+                $st.Write($bytes, 0, $bytes.Length)
+                $st.Close()
+                $resp = $req.GetResponse()
+                $resp.Close()
+            } catch [System.Net.WebException] {
+                if ($_.Response -and [int]$_.Response.StatusCode -eq 429) {
+                    $isRateLimited = $true
+                    $quotaDetails = "Rate-Limited (HTTP 429 Free Limit Reached)"
+                }
+            } catch {}
+
+            # Check local spent ledger
+            if (-not $isRateLimited) {
+                $egressFile = Join-Path $userHome ".config\opencode\unlimited-egress.json"
+                if (Test-Path $egressFile) {
+                    try {
+                        $raw = [System.IO.File]::ReadAllText($egressFile)
+                        $egress = $jser.DeserializeObject($raw)
+                        $today = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+                        if ($egress["day"] -eq $today -and $egress["addresses"] -ne $null) {
+                            $addr = $egress["addresses"]
+                            $ipKey = "$ip/32"
+                            if ($addr.ContainsKey($ipKey) -and $addr[$ipKey]["spent"] -eq $true) {
+                                $isRateLimited = $true
+                                $quotaDetails = "Rate-Limited (Recorded in local spent ledger)"
+                            }
                         }
-                    }
-                } catch {}
+                    } catch {}
+                }
+            }
+
+            # Check OpenCode engine log
+            if (-not $isRateLimited) {
+                $ocLogPath = Join-Path $userHome ".local\share\opencode\log\opencode.log"
+                if (Test-Path $ocLogPath) {
+                    try {
+                        $tail = Get-Content -Path $ocLogPath -Tail 50 -ErrorAction SilentlyContinue | Out-String
+                        if ($tail -match "Free usage limit reached" -or $tail -match "provider\.free-limit") {
+                            $isRateLimited = $true
+                            $quotaDetails = "Rate-Limited (Free limit exhausted on current IP)"
+                            try {
+                                $egressFile = Join-Path $userHome ".config\opencode\unlimited-egress.json"
+                                $today = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+                                $state = @{ day = $today; addresses = @{} }
+                                if (Test-Path $egressFile) {
+                                    $raw = [System.IO.File]::ReadAllText($egressFile)
+                                    $loaded = $jser.DeserializeObject($raw)
+                                    if ($loaded["day"] -eq $today) { $state = $loaded }
+                                }
+                                $key = "$ip/32"
+                                $state["addresses"][$key] = @{
+                                    ip = $ip
+                                    country = $country
+                                    spent = $true
+                                    lastStatus = 429
+                                    lastSeen = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                                    note = "OpenCode free usage limit reached"
+                                }
+                                [System.IO.File]::WriteAllText($egressFile, $jser.Serialize($state))
+                            } catch {}
+                        }
+                    } catch {}
+                }
             }
 
             $window.Dispatcher.Invoke([Action]{
                 $lblIp.Text = $ipText
-                if ($isSpent) {
-                    $lblQuota.Text = "● Rate-Limited (Switch Region)"
-                    $lblQuota.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fb7185")
-                    $badgeQuota.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#331d24")
-                    $badgeQuota.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fb7185")
+                if ($isRateLimited) {
+                    Update-QuotaBadge "limited" "Rate-Limited"
+                    Set-Status "● Awaiting VPN connection..."
+                    Append-Log "Network: $ipText"
+                    Append-Log "✖ Quota: $quotaDetails"
+                    Append-Log "Awaiting VPN connection to acquire a fresh IP..."
                 } else {
-                    $lblQuota.Text = "● Ready (Free Tier Available)"
-                    $lblQuota.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#34d399")
-                    $badgeQuota.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#132e22")
-                    $badgeQuota.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#34d399")
+                    Update-QuotaBadge "ready" "Ready"
+                    Set-Status "● Ready (Free Tier Available)"
+                    Append-Log "Network: $ipText"
+                    Append-Log "✔ Quota: $quotaDetails"
                 }
-                Set-Status "● Idle"
-                Append-Log "Network: $ipText"
-                Append-Log "Quota status: $($lblQuota.Text)"
             })
         } catch {
-            $window.Dispatcher.Invoke([Action]{
-                $lblIp.Text = "🌐 Error parsing IP"
-                Set-Status "● Idle"
-            })
+            if (-not $Silent) {
+                $window.Dispatcher.Invoke([Action]{
+                    $lblIp.Text = "Parse Error"
+                    Update-QuotaBadge "offline" "Offline"
+                    Set-Status "● Idle"
+                    Append-Log "Error processing gateway payload."
+                })
+            }
         }
     }
 
-    Register-ObjectEvent -InputObject $client -EventName DownloadStringCompleted -Action $eventHandler -MaxTriggerCount 1 | Out-Null
+    $client.Add_DownloadStringCompleted($eventHandler)
     $client.DownloadStringAsync((New-Object System.Uri("https://ipinfo.io/json")))
 }
 
 $btnCheck.Add_Click({
-    Check-StatusAsync
+    Check-StatusAsync $false
 })
 
-# Run streaming process
+# Subprocess Runner with live UI log streaming
 function Invoke-AsyncProcess {
-    param(
-        [string]$FilePath,
-        [string]$Arguments,
-        [scriptblock]$OnDone
-    )
+    param([string]$FilePath, [string]$Arguments, [scriptblock]$OnDone)
+
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $FilePath
     $psi.Arguments = $Arguments
-    $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
 
     $proc = New-Object System.Diagnostics.Process
@@ -590,19 +1029,42 @@ $btnReset.Add_Click({
 
     # 1. Terminate OpenCode safely without killing self
     Append-Log "Terminating OpenCode instances (safe)..."
-    Get-Process -Name "opencode", "opencode-cli" -ErrorAction SilentlyContinue |
+    Get-Process -Name "opencode", "OpenCode", "opencode-cli" -ErrorAction SilentlyContinue |
         Where-Object { $_.Id -ne $PID } |
         Stop-Process -Force -ErrorAction SilentlyContinue
 
     Start-Sleep -Milliseconds 300
 
-    Append-Log "Running opencode-unlimited clear..."
-    Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" clear" -OnDone {
-        Append-Log "Running opencode-unlimited reset `"$proj`"..."
-        Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" reset `"$proj`"" -OnDone {
+    $isAll = ($proj -eq "All Workspaces (All Sessions)" -or $proj -like "All Workspaces*")
+    if ($isAll) {
+        $targets = @()
+        foreach ($item in $comboProj.Items) {
+            if ($item -and $item -ne "All Workspaces (All Sessions)" -and (Test-Path $item) -and -not ($targets -contains $item)) {
+                $targets += $item
+            }
+        }
+        if ($targets.Count -eq 0) { $targets += $userHome }
+
+        Append-Log "Running opencode-unlimited clear across all sessions..."
+        Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" clear" -OnDone {
+            Append-Log "Resetting session IDs across $($targets.Count) workspace(s)..."
+            foreach ($t in $targets) {
+                Append-Log "  -> Resetting workspace: $t"
+                & cmd.exe /c "`"$script:unlimitedCmd`" reset `"$t`""
+            }
             Append-Log "✔ Clean reset finished! All chat history preserved."
             Set-Status "● Reset done! Launch OpenCode."
             Check-StatusAsync
+        }
+    } else {
+        Append-Log "Running opencode-unlimited clear..."
+        Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" clear" -OnDone {
+            Append-Log "Running opencode-unlimited reset `"$proj`"..."
+            Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" reset `"$proj`"" -OnDone {
+                Append-Log "✔ Clean reset finished! All chat history preserved."
+                Set-Status "● Reset done! Launch OpenCode."
+                Check-StatusAsync
+            }
         }
     }
 })
@@ -619,31 +1081,6 @@ $btnClear.Add_Click({
     }
 })
 
-# Switch VPN
-$btnSwitchVpn.Add_Click({
-    $region = $comboVpn.SelectedItem
-    if (-not $region) { return }
-
-    Append-Log "════════════════════════════════════"
-    Append-Log "Switching ExpressVPN to: $region"
-    Set-Status "● Connecting to $region..."
-
-    if ($script:expressVpnPath -and (Test-Path $script:expressVpnPath)) {
-        Invoke-AsyncProcess -FilePath $script:expressVpnPath -Arguments "connect `"$region`"" -OnDone {
-            Append-Log "✔ VPN command finished. Probing network status..."
-            Set-Status "● Connected! Checking IP..."
-            Check-StatusAsync
-        }
-    } else {
-        # Try running through cmd
-        Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c expressvpn connect `"$region`"" -OnDone {
-            Append-Log "✔ VPN command finished. Probing network status..."
-            Set-Status "● Connected! Checking IP..."
-            Check-StatusAsync
-        }
-    }
-})
-
 # Launch OpenCode
 $btnLaunch.Add_Click({
     Append-Log "════════════════════════════════════"
@@ -651,6 +1088,7 @@ $btnLaunch.Add_Click({
     Set-Status "● Launching OpenCode..."
 
     $candidates = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\ai.opencode.desktop\OpenCode.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\opencode\opencode.exe"),
         (Join-Path $env:ProgramFiles "opencode\opencode.exe"),
         (Join-Path ${env:ProgramFiles(x86)} "opencode\opencode.exe"),
@@ -666,8 +1104,14 @@ $btnLaunch.Add_Click({
     if (-not $exeToLaunch) { $exeToLaunch = "opencode" }
 
     try {
-        $p = Start-Process -FilePath $exeToLaunch -PassThru
-        Append-Log "✔ OpenCode launched (PID: $($p.Id))"
+        $projDir = $comboProj.Text
+        $startArgs = @{ FilePath = $exeToLaunch; PassThru = $true }
+        if ($projDir -and (Test-Path $projDir)) {
+            $startArgs["WorkingDirectory"] = $projDir
+            $startArgs["ArgumentList"] = "`"$projDir`""
+        }
+        $p = Start-Process @startArgs
+        Append-Log "✔ OpenCode launched (PID: $($p.Id))$(if ($projDir) { " in $projDir" })"
         Set-Status "● OpenCode running."
     } catch {
         Append-Log "✖ Failed to launch OpenCode directly: $($_.Exception.Message)"
@@ -684,6 +1128,14 @@ $btnLaunch.Add_Click({
 
 # Initial load
 Append-Log "OpenCode Helper (Windows) initialized. Ready."
-Check-StatusAsync
+Check-StatusAsync $false
+
+# Background VPN connection watcher
+$vpnTimer = New-Object System.Windows.Threading.DispatcherTimer
+$vpnTimer.Interval = [TimeSpan]::FromSeconds(4)
+$vpnTimer.Add_Tick({
+    Check-StatusAsync $true
+})
+$vpnTimer.Start()
 
 [void]$window.ShowDialog()

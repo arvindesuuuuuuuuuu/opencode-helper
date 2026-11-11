@@ -1,0 +1,384 @@
+Starting application at 2026-11-11 23:57:48
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+CheckStatusAsync exception: System.Threading.Tasks.TaskCanceledException: A task was canceled.
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at OpenCodeManager.MainWindow.<CheckStatusAsync>d__72.MoveNext()
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+CheckStatusAsync exception: System.Threading.Tasks.TaskCanceledException: A task was canceled.
+   at System.Runtime.CompilerServices.TaskAwaiter.ThrowForNonSuccess(Task task)
+   at System.Runtime.CompilerServices.TaskAwaiter.HandleNonSuccessAndDebuggerNotification(Task task)
+   at OpenCodeManager.MainWindow.<CheckStatusAsync>d__72.MoveNext()
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+Window Closing event fired
+Window Closed event fired
+Application exited normally at 2026-11-12 00:07:18
+Starting application at 2026-11-12 00:09:42
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+Starting application at 2026-11-12 00:20:46
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+Starting application at 2026-11-12 00:21:28
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+DetectOpenCodeProjects -> active: D:\trickcal-launcher, total dirs: 3
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+Starting application at 2026-11-12 00:23:23
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+DetectOpenCodeProjects -> active: D:\trickcal-launcher, total dirs: 3
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+DetectOpenCodeProjects -> active: D:\trickcal-launcher, total dirs: 3
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+Window Closing event fired
+Window Closed event fired
+Application exited normally at 2026-11-12 00:33:31
+Starting application at 2026-11-12 00:35:27
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+DetectOpenCodeProjects -> active: D:\trickcal-launcher, total dirs: 3
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+Starting application at 2026-11-12 00:36:35
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+DetectOpenCodeProjects -> active: D:\trickcal-launcher, total dirs: 3
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+DetectOpenCodeProjects -> active: D:\trickcal-launcher, total dirs: 3
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+Window Closing event fired
+Window Closed event fired
+Application exited normally at 2026-11-12 00:46:20
+Starting application at 2026-11-12 00:48:20
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+DetectOpenCodeProjects -> active: D:\trickcal-launcher, total dirs: 3
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+Starting application at 2026-11-12 00:59:10
+MainWindow() ctor entered
+ResolvePaths done
+InitializeComponent done
+Window Loaded event fired
+DetectOpenCodeProjects -> active: D:\trickcal-launcher, total dirs: 3
+CheckStatusAsync started
+ipinfo downloaded
+CheckStatusAsync finished successfully
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded
+ipinfo downloaded

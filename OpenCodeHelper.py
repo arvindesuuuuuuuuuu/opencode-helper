@@ -33,35 +33,14 @@ for c in UNLIMITED_CMD_CANDIDATES:
         UNLIMITED_CMD = os.path.abspath(c)
         break
 
-EXPRESSVPN_CANDIDATES = [
-    r"C:\Program Files (x86)\ExpressVPN\services\ExpressVPN.CLI.exe",
-    r"C:\Program Files\ExpressVPN\services\ExpressVPN.CLI.exe",
-    "expressvpn.exe",
-    "expressvpn"
-]
-
-EXPRESSVPN_PATH = "expressvpn"
-for v in EXPRESSVPN_CANDIDATES:
-    if os.path.exists(v):
-        EXPRESSVPN_PATH = v
-        break
-
-VPN_LOCATIONS = [
-    "singapore-jurong",
-    "singapore-cbd",
-    "japan-tokyo",
-    "japan-shibuya",
-    "usa-new-york",
-    "usa-los-angeles",
-    "taiwan-3",
-    "smart"
-]
+EGRESS_FILE = os.path.join(USER_HOME, ".config", "opencode", "unlimited-egress.json")
+OC_LOG_PATH = os.path.join(USER_HOME, ".local", "share", "opencode", "log", "opencode.log")
 
 class OpenCodeHelperWin:
     def __init__(self, root):
         self.root = root
         self.root.title("OpenCode Helper")
-        self.root.geometry("410x540")
+        self.root.geometry("410x480")
         self.root.resizable(True, True)
 
         # Dark Modern Palette
@@ -76,10 +55,17 @@ class OpenCodeHelperWin:
         self.red = "#fb7185"
         self.log_bg = "#07080e"
 
+        self.last_known_ip = None
+
         self.root.configure(bg=self.bg)
         self.setup_ui()
         self.log("OpenCode Helper (Windows) initialized. Ready.")
         self.refresh_status_async()
+        self.root.after(4000, self.vpn_watcher)
+
+    def vpn_watcher(self):
+        self.refresh_status_async(silent=True)
+        self.root.after(4000, self.vpn_watcher)
 
     def log(self, text):
         def _append():
@@ -133,7 +119,7 @@ class OpenCodeHelperWin:
         tk.Label(guide, text="📋 Quick Instructions:", font=("Segoe UI", 9, "bold"), fg="#93c5fd", bg=self.guide_card, anchor="w").pack(fill="x", pady=(0, 2))
 
         for num, text in [
-            ("1.", "If Quota is Limited → Select VPN & click 'Switch'"),
+            ("1.", "If Quota is Limited → Connect any VPN"),
             ("2.", "Click '🚀 1-Click Clean Reset' (Preserves all chats)"),
             ("3.", "Click '▶ Launch OpenCode' & reopen chat from list")
         ]:
@@ -147,23 +133,9 @@ class OpenCodeHelperWin:
         tk.Label(tip_r, text="•", font=("Segoe UI", 8), fg="#64748b", bg=self.guide_card, width=2, anchor="w").pack(side="left")
         tk.Label(tip_r, text="Use '🧹 Clear Banners' if only an error banner is stuck", font=("Segoe UI", 8, "italic"), fg="#64748b", bg=self.guide_card, anchor="w").pack(side="left")
 
-        # 4. Controls: VPN & Project
+        # 4. Controls: Project
         ctrl_box = tk.Frame(container, bg=self.bg)
         ctrl_box.pack(fill="x", pady=(0, 6))
-
-        # VPN Row
-        vpn_row = tk.Frame(ctrl_box, bg=self.bg)
-        vpn_row.pack(fill="x", pady=2)
-        tk.Label(vpn_row, text="VPN:", font=("Segoe UI", 9, "bold"), fg=self.subtext, bg=self.bg, width=8, anchor="w").pack(side="left")
-
-        self.vpn_combo = ttk.Combobox(vpn_row, values=VPN_LOCATIONS, state="readonly", font=("Segoe UI", 9))
-        self.vpn_combo.set(VPN_LOCATIONS[0])
-        self.vpn_combo.pack(side="left", fill="x", expand=True, padx=(0, 6))
-
-        btn_switch = tk.Button(vpn_row, text="Switch", font=("Segoe UI", 9, "bold"), fg="#ffffff", bg="#2563eb",
-                               activebackground="#3b82f6", activeforeground="#ffffff", relief="flat", bd=0, padx=12, pady=2,
-                               command=self.switch_vpn_async)
-        btn_switch.pack(side="right")
 
         # Project Row
         proj_row = tk.Frame(ctrl_box, bg=self.bg)
@@ -233,9 +205,38 @@ class OpenCodeHelperWin:
         if d:
             self.proj_var.set(d)
 
-    def refresh_status_async(self):
-        self.log("Probing IP & OpenCode gateway status...")
-        self.set_status("● Probing gateway...")
+    def record_spent_ip(self, ip, country=""):
+        try:
+            today = time.strftime("%Y-%m-%d", time.gmtime())
+            state = {"day": today, "addresses": {}}
+            if os.path.exists(EGRESS_FILE):
+                try:
+                    with open(EGRESS_FILE, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                        if loaded.get("day") == today:
+                            state = loaded
+                except Exception:
+                    pass
+            os.makedirs(os.path.dirname(EGRESS_FILE), exist_ok=True)
+            key = f"{ip}/32"
+            addresses = state.setdefault("addresses", {})
+            addresses[key] = {
+                "ip": ip,
+                "country": country or "",
+                "spent": True,
+                "lastStatus": 429,
+                "lastSeen": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                "note": "OpenCode free usage limit reached"
+            }
+            with open(EGRESS_FILE, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+        except Exception:
+            pass
+
+    def refresh_status_async(self, silent=False):
+        if not silent:
+            self.log("Probing IP & OpenCode gateway status...")
+            self.set_status("● Probing gateway...")
 
         def _worker():
             try:
@@ -247,12 +248,18 @@ class OpenCodeHelperWin:
                     country = data.get("country", "")
                     ip_text = f"🌐 {ip}  •  {city}, {country}"
 
-                    # Ledger check
+                    ip_changed = (ip != "Offline" and self.last_known_ip is not None and ip != self.last_known_ip)
+                    first_run = (self.last_known_ip is None)
+                    if silent and not ip_changed and not first_run:
+                        pass
+
+                    self.last_known_ip = ip
+
+                    # 1. Ledger check
                     is_spent = False
-                    egress_file = os.path.join(USER_HOME, ".config", "opencode", "unlimited-egress.json")
-                    if os.path.exists(egress_file):
+                    if os.path.exists(EGRESS_FILE):
                         try:
-                            with open(egress_file, "r", encoding="utf-8") as f:
+                            with open(EGRESS_FILE, "r", encoding="utf-8") as f:
                                 egress = json.load(f)
                                 today = time.strftime("%Y-%m-%d", time.gmtime())
                                 if egress.get("day") == today:
@@ -263,15 +270,38 @@ class OpenCodeHelperWin:
                         except Exception:
                             pass
 
+                    # 2. Check OpenCode engine log
+                    if not is_spent and ip != "Offline" and os.path.exists(OC_LOG_PATH):
+                        try:
+                            with open(OC_LOG_PATH, "r", encoding="utf-8", errors="ignore") as f:
+                                f.seek(max(0, os.path.getsize(OC_LOG_PATH) - 131072))
+                                tail = f.read()
+                                if "Free usage limit reached" in tail or "provider.free-limit" in tail:
+                                    is_spent = True
+                                    self.record_spent_ip(ip, country)
+                        except Exception:
+                            pass
+
                     def _ui():
                         self.lbl_ip.config(text=ip_text)
                         if is_spent:
-                            self.lbl_quota.config(text="● Rate-Limited (Switch Region)", fg="#fb7185", bg="#331d24")
+                            self.lbl_quota.config(text="● Rate-Limited", fg="#fb7185", bg="#331d24")
+                            self.set_status("● Awaiting VPN connection...")
+                            if not silent or ip_changed:
+                                self.log(f"Network: {ip_text}")
+                                self.log("✖ Quota: Rate-Limited (Free limit exhausted on current IP)")
+                                self.log("Awaiting VPN connection to acquire a fresh IP...")
                         else:
                             self.lbl_quota.config(text="● Ready (Free Tier Available)", fg="#34d399", bg="#132e22")
-                        self.set_status("● Idle")
-                        self.log(f"Network: {ip_text}")
-                        self.log(f"Quota status: {self.lbl_quota['text']}")
+                            if ip_changed and not first_run:
+                                self.set_status("● Ready")
+                                self.log(f"🔄 Connection change detected: {ip_text}")
+                                self.log("✔ Quota: Ready (Free Tier Available)")
+                            else:
+                                self.set_status("● Ready")
+                                if not silent:
+                                    self.log(f"Network: {ip_text}")
+                                    self.log("✔ Quota: Ready (Free Tier Available)")
 
                     self.root.after(0, _ui)
             except Exception as e:
@@ -279,7 +309,8 @@ class OpenCodeHelperWin:
                     self.lbl_ip.config(text="🌐 Offline / Connection Error")
                     self.lbl_quota.config(text="● Connection Error", fg="#fb7185", bg="#331d24")
                     self.set_status("● Idle")
-                    self.log(f"Connection check error: {e}")
+                    if not silent:
+                        self.log(f"Connection check error: {e}")
                 self.root.after(0, _err)
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -334,20 +365,6 @@ class OpenCodeHelperWin:
             self.run_command_streaming(f'"{UNLIMITED_CMD}" clear')
             self.log("✔ Banners stripped! Chat sessions untouched.")
             self.set_status("● Banners stripped (Tabs safe).")
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def switch_vpn_async(self):
-        region = self.vpn_combo.get()
-        self.log("════════════════════════════════════")
-        self.log(f"Switching ExpressVPN to: {region}")
-        self.set_status(f"● Connecting to {region}...")
-
-        def _worker():
-            self.run_command_streaming(f'"{EXPRESSVPN_PATH}" connect "{region}"')
-            self.log("✔ VPN command finished. Probing network status...")
-            self.set_status("● Connected! Checking IP...")
-            self.refresh_status_async()
 
         threading.Thread(target=_worker, daemon=True).start()
 
