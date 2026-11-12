@@ -1,0 +1,1266 @@
+#!/usr/bin/env bash
+# OpenCode-Unlimited - Linux entry point
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$SCRIPT_DIR/.."
+if [ ! -f "$ROOT/lib/proxy-bridge.js" ]; then ROOT="$SCRIPT_DIR"; fi
+BRIDGE_JS="$ROOT/lib/proxy-bridge.js"
+BUNDLED_PLUGIN="$ROOT/plugins/unlimited-shield.js"
+
+USER_HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$USER_HOME/.config}/opencode"
+DATA_DIR="${XDG_DATA_HOME:-$USER_HOME/.local/share}/opencode"
+STATE_FILE="$CONFIG_DIR/unlimited.json"
+INFO_FILE="$CONFIG_DIR/unlimited-info.json"
+PLUGIN_DIR="$CONFIG_DIR/plugins"
+PLUGIN_FILE="$PLUGIN_DIR/unlimited-shield.js"
+PID_FILE="$CONFIG_DIR/unlimited-bridge.pid"
+LOG_FILE="$CONFIG_DIR/unlimited-bridge.log"
+IP_CACHE_FILE="$CONFIG_DIR/unlimited-ip.json"
+GATEWAY="https://opencode.ai/inference/openai/v1/chat/completions"
+TRACE_URL="https://cloudflare.com/cdn-cgi/trace"
+DEFAULT_MODEL="deepseek-v4.1-flash-free"
+DEFAULT_BRIDGE_PORT=8899
+TOOL_VERSION="1.0.2"
+INFO_CACHE=""
+REST=()
+
+# ---------- small helpers ----------
+c_green() { printf '\033[32m%s\033[0m\n' "$*"; }
+c_yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
+c_red() { printf '\033[31m%s\033[0m\n' "$*"; }
+c_gray() { printf '\033[90m%s\033[0m\n' "$*"; }
+
+step() { printf '%s\n' "$*"; }
+ok() { printf '  [+] %s\n' "$*"; }
+warn() { printf '  [!] %s\n' "$*"; }
+bad() { printf '  [x] %s\n' "$*"; }
+info() { printf '      %s\n' "$*"; }
+
+hex() { od -An -tx1 -N"${1:-16}" /dev/urandom | tr -d ' \n'; }
+
+write_file() { mkdir -p "$(dirname "$1")"; printf '%s' "$2" > "$1"; }
+read_file() { [ -f "$1" ] && cat "$1" || true; }
+get_json() { [ -f "$1" ] && jq . "$1" 2>/dev/null || true; }
+
+get_config() {
+  local cfg='{"pluginPath":"","model":"'"$DEFAULT_MODEL"'","orgId":"","proxy":"","proxyPool":[],"proxyIndex":0,"bridgePort":'"$DEFAULT_BRIDGE_PORT"',"ipMode":"manual","rotateDb":false,"lastIp":"","lastBucket":"","updatedAt":""}'
+  if [ -f "$STATE_FILE" ]; then
+    cfg=$(jq -s '.[0] * (.[1] // {})' <(printf '%s' "$cfg") "$STATE_FILE" 2>/dev/null || printf '%s' "$cfg")
+  fi
+  printf '%s' "$cfg"
+}
+
+save_config() {
+  local cfg="$1"
+  cfg=$(printf '%s' "$cfg" | jq --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.updatedAt=$t')
+  mkdir -p "$(dirname "$STATE_FILE")"
+  printf '%s\n' "$cfg" > "$STATE_FILE"
+}
+
+resolve_opencode() {
+  if command -v opencode >/dev/null 2>&1; then command -v opencode; return; fi
+  for p in "$USER_HOME/.opencode/bin/opencode" "$USER_HOME/.bun/bin/opencode" /usr/local/bin/opencode /usr/bin/opencode; do
+    [ -x "$p" ] && { echo "$p"; return; }
+  done
+  echo "opencode"
+}
+
+get_curl() { command -v curl 2>/dev/null || true; }
+
+invoke_curl() { # args...
+  local curl; curl=$(get_curl)
+  [ -z "$curl" ] && return 1
+  "$curl" "$@" 2>/dev/null
+}
+
+webrequest_raw() { # method url body proxy
+  : # fallback not needed; curl present
+}
+
+get_egress_ip() { # proxyUrl force
+  local proxy="$1"
+  local force="${2:-}"
+  # cache
+  if [ -z "$force" ] && [ -f "$IP_CACHE_FILE" ]; then
+    local ip at via age now
+    ip=$(jq -r '.ip // ""' "$IP_CACHE_FILE" 2>/dev/null)
+    at=$(jq -r '.at // 0' "$IP_CACHE_FILE" 2>/dev/null)
+    via=$(jq -r '.via // ""' "$IP_CACHE_FILE" 2>/dev/null)
+    now=$(date +%s)
+    age=$((now - at))
+    if [ "$ip" != "unavailable" ] && [ "$ip" != "" ] && [ "$age" -ge 0 ] && [ "$age" -lt 60 ] && [ "$via" = "$proxy" ]; then
+      echo "$ip"; return
+    fi
+  fi
+  local ip="unavailable"
+  local curl; curl=$(get_curl)
+  if [ -n "$curl" ]; then
+    local args=(-s --max-time 8)
+    [ -n "$proxy" ] && args+=(--proxy "$proxy")
+    args+=("$TRACE_URL")
+    local out; out=$("$curl" "${args[@]}" 2>/dev/null)
+    ip=$(printf '%s\n' "$out" | sed -n 's/^ip=//p' | head -1 | tr -d '\r')
+    [ -z "$ip" ] && ip="unavailable"
+  fi
+  if [ "$ip" = "unavailable" ]; then
+    local res; res=$(invoke_curl -s --max-time 8 ${proxy:+--proxy "$proxy"} "$TRACE_URL" 2>/dev/null)
+    ip=$(printf '%s\n' "$res" | sed -n 's/^ip=//p' | head -1 | tr -d '\r')
+    [ -z "$ip" ] && ip="unavailable"
+  fi
+  if [ "$ip" != "unavailable" ]; then
+    printf '{"ip":"%s","at":%s,"via":"%s"}\n' "$ip" "$(date +%s)" "$proxy" > "$IP_CACHE_FILE"
+  fi
+  echo "$ip"
+}
+
+node_sqlite_ok() {
+  local node; node=$(command -v node 2>/dev/null)
+  [ -z "$node" ] && return 1
+  local v; v=$("$node" --version 2>/dev/null | tr -d 'v')
+  local major minor
+  major=$(echo "$v" | cut -d. -f1)
+  minor=$(echo "$v" | cut -d. -f2)
+  if [ "$major" -gt 22 ]; then return 0; fi
+  if [ "$major" -eq 22 ] && [ "$minor" -ge 5 ]; then return 0; fi
+  return 1
+}
+
+get_db_path() {
+  local info; info=$(get_opencode_info)
+  local db; db=$(printf '%s' "$info" | jq -r '.dbPath // ""')
+  if [ -n "$db" ] && [ -f "$db" ]; then echo "$db"; return; fi
+  for c in "$DATA_DIR/opencode.db" "$DATA_DIR/opencode.sqlite" "$USER_HOME/.local/share/opencode/opencode.db"; do
+    [ -f "$c" ] && { echo "$c"; return; }
+  done
+  echo ""
+}
+
+invoke_node_helper() { # helper action [arg]
+  local helper="$1"; shift
+  local node; node=$(command -v node 2>/dev/null)
+  [ -z "$node" ] && { echo ""; return; }
+  NODE_NO_WARNINGS=1 "$node" "$helper" "$@" 2>/dev/null
+}
+
+invoke_node_script() { # source args...
+  local src="$1"; shift
+  local node; node=$(command -v node 2>/dev/null)
+  [ -z "$node" ] && return
+  local tmp="/tmp/opencode/unlimited-$(hex 5).js"
+  mkdir -p /tmp/opencode
+  printf '%s' "$src" > "$tmp"
+  NODE_NO_WARNINGS=1 "$node" "$tmp" "$@" 2>&1
+  rm -f "$tmp"
+}
+
+convert_db_path() { # path
+  local p="$1"
+  if [ -e "$p" ]; then p=$(readlink -f "$p" 2>/dev/null || echo "$p"); fi
+  echo "${p//\\//}"
+}
+
+get_opencode_info() {
+  if [ -n "$INFO_CACHE" ]; then echo "$INFO_CACHE"; return; fi
+  local info='{"exe":"","version":"","major":0,"api":0,"baseURL":"https://opencode.ai/inference/openai/v1","gateway":"https://opencode.ai/inference/openai/v1/chat/completions","orgId":"","dbPath":"","dataDir":"","configDir":"","freeModels":[],"freeModel":"'"$DEFAULT_MODEL"'","sessionTable":"","running":false,"source":"fallback","detectedAt":0}'
+  local helper="$ROOT/lib/oc-info.js"
+  local node; node=$(command -v node 2>/dev/null)
+  if [ -n "$node" ] && [ -f "$helper" ]; then
+    local raw; raw=$(NODE_NO_WARNINGS=1 "$node" "$helper" info 2>/dev/null)
+    if [ -n "$raw" ]; then
+      local parsed; parsed=$(echo "$raw" | jq . 2>/dev/null)
+      if [ -n "$parsed" ]; then info="$parsed"; fi
+    fi
+  fi
+  INFO_CACHE="$info"
+  echo "$info"
+}
+
+# ---------- identity ----------
+get_virtual_identity() {
+  local helper="$ROOT/lib/identity.js"
+  [ -f "$helper" ] || { echo ""; return; }
+  invoke_node_helper "$helper" show
+}
+
+# ---------- commands ----------
+cmd_help() {
+  step "opencode-unlimited <command>"
+  step ""
+  info "reset [path]         new device id, new session ids, clear errors"
+  info "reset [path] -Dry    show what the session re-id would touch"
+  info "identity [rotate]    show or rotate the virtual device identity"
+  info "identity restore     drop the virtual identity, registry never touched"
+  info "block                egress blocks seen today, and which are spent"
+  info "block check          is the address you are on now still usable"
+  info "usage                free check of the meter and the reset clock"
+  info "sessions [path]      list sessions and their ids for a folder"
+  info "model                list providers and free models you can switch to"
+  info "model <spec>         switch this folder to provider/model[#variant]"
+  info "model <path> <spec>  switch a session id or a whole folder"
+  info "reid <id|path>       mint fresh session ids, keep every message"
+  info "clear [path]         strip stored free-limit errors"
+  info "verify [-fix]        check sessions decode, no dangling state"
+  info ""
+  info "install              register PATH, install the slash command"
+  info "status               runtime, identity, network, bucket"
+  info "doctor               check node, service, schema, identity"
+  info "version              tool version plus the detected opencode version"
+  info "on | off             enable or disable the identity plugin"
+  info "proxy set <url>      route opencode through socks5:// or http://"
+  info "proxy off            drop the upstream, direct egress"
+  info "proxy status         show the current upstream and the pool"
+  info "proxy pool add <url> queue proxies for reset to cycle through"
+  info "proxy pool clear     empty the pool, upstream left as is"
+  info "proxy next           jump to the next pooled proxy now"
+  info "warp on|off|rotate   Cloudflare WARP path (optional)"
+  info "run <args...>        run opencode, rotate on free-limit"
+  info "uninstall            remove plugin, slash commands, state"
+}
+
+cmd_version() {
+  local info; info=$(get_opencode_info)
+  step "opencode-unlimited $TOOL_VERSION"
+  info "opencode   : v$(echo "$info" | jq -r '.version // "not detected"')"
+  info "api        : $(echo "$info" | jq -r '.api // "unknown"')"
+  info "session t. : $(echo "$info" | jq -r '.sessionTable // "unknown"')"
+  info "gateway    : $(echo "$info" | jq -r '.gateway')"
+}
+
+cmd_status() {
+  local cfg; cfg=$(get_config)
+  local info; info=$(get_opencode_info)
+  step "==> opencode-unlimited status"
+  step ""
+  step "runtime"
+  info "opencode   : v$(echo "$info" | jq -r '.version // "not detected"')$(v=$(echo "$info" | jq -r '.api'); [ "$v" != "0" ] && [ -n "$v" ] && echo "  (api v$v)")"
+  info "binary     : $(echo "$info" | jq -r '.exe')"
+  info "service    : $(echo "$info" | jq -r 'if .running then "running" else "not running (start the app once)" end')"
+  info "gateway    : $(echo "$info" | jq -r '.gateway')"
+  info "database   : $(echo "$info" | jq -r 'if .dbPath then .dbPath else "not found" end')"
+  info "session t. : $(echo "$info" | jq -r 'if .sessionTable then .sessionTable else "unknown" end')"
+  local fm; fm=$(echo "$info" | jq -r '.freeModels | length')
+  if [ "$fm" -gt 0 ]; then info "free models: $fm listed, default $(echo "$info" | jq -r '.freeModel')"; fi
+  step ""
+  step "identity"
+  local vid; vid=$(get_virtual_identity)
+  if [ -n "$vid" ] && [ "$(echo "$vid" | jq -r '.exists')" = "true" ]; then
+    info "device id  : $(echo "$vid" | jq -r '.deviceId')"
+    info "fingerprint: $(echo "$vid" | jq -r '.fingerprint')   generation $(echo "$vid" | jq -r '.generation')"
+    info "registry   : not touched, this id lives in a local file"
+  else
+    warn "no virtual identity yet, run: opencode-unlimited identity rotate"
+  fi
+  step ""
+  step "plugin"
+  if [ -f "$PLUGIN_FILE" ]; then info "state      : enabled"; else
+    if [ -f "$PLUGIN_FILE.disabled" ]; then info "state      : disabled"; else info "state      : missing"; fi
+  fi
+  info "path       : $PLUGIN_FILE"
+  step ""
+  step "network"
+  local proxy; proxy=$(echo "$cfg" | jq -r '.proxy // ""')
+  info "egress ip  : $(get_egress_ip "$proxy")"
+  info "ipMode     : $(echo "$cfg" | jq -r '.ipMode')"
+  info "upstream   : $( [ -n "$proxy" ] && echo "$proxy" || echo "none (manual)" )"
+  local bpid; bpid=$(read_file "$PID_FILE" | tr -d '[:space:]')
+  if [ -n "$bpid" ] && kill -0 "$bpid" 2>/dev/null; then
+    info "bridge     : running (pid $bpid, port $(echo "$cfg" | jq -r '.bridgePort'))"
+  else
+    info "bridge     : stopped"
+  fi
+  step ""
+  step "egress ledger"
+  local helper="$ROOT/lib/egress.js"
+  if [ -f "$helper" ]; then
+    local raw; raw=$(invoke_node_helper "$helper" show)
+    local ledger; ledger=$(echo "$raw" | jq . 2>/dev/null)
+    if [ -n "$ledger" ]; then
+      info "today       : $(echo "$ledger" | jq -r '.day')   blocks seen $(echo "$ledger" | jq -r '.total')   spent $(echo "$ledger" | jq -r '.spent')"
+      local mins; mins=$(echo "$ledger" | jq -r '(.secondsToReset/60)|floor')
+      info "next reset  : 00:00 UTC, in $mins minutes"
+    else
+      warn "ledger unreadable"
+    fi
+  else
+    warn "egress helper missing"
+  fi
+}
+
+cmd_doctor() {
+  step "==> opencode-unlimited doctor"
+  step ""
+  info "os         : $(uname -s) $(uname -r)"
+  local bashv; bashv=$(bash --version | head -1)
+  info "bash       : $bashv"
+  local node; node=$(command -v node 2>/dev/null)
+  if [ -n "$node" ]; then
+    ok "node       : $("$node" --version)"
+    if node_sqlite_ok; then ok "sqlite     : node:sqlite available"; else warn "sqlite     : needs node 22.5+ for -Db features"; fi
+  else
+    warn "node       : not found (proxy bridge and -Db need it)"
+  fi
+  if [ -n "$(get_curl)" ]; then ok "curl       : found"; else warn "curl       : missing"; fi
+  info "tool       : $0"
+  local info; info=$(get_opencode_info)
+  info "opencode   : $(echo "$info" | jq -r '.exe')"
+  if [ -n "$(echo "$info" | jq -r '.version')" ]; then
+    ok "version    : v$(echo "$info" | jq -r '.version')$(a=$(echo "$info" | jq -r '.api'); [ "$a" != "0" ] && echo " (api v$a)")"
+  else
+    warn "version    : not detected, is opencode on PATH?"
+  fi
+  if [ "$(echo "$info" | jq -r '.running')" = "true" ]; then ok "service    : running"; else warn "service    : not reachable, start opencode once"; fi
+  info "gateway    : $(echo "$info" | jq -r '.gateway')"
+  info "database   : $(echo "$info" | jq -r 'if .dbPath then .dbPath else "not found" end')"
+  info "session t. : $(echo "$info" | jq -r 'if .sessionTable then .sessionTable else "unknown" end')"
+  local vid; vid=$(get_virtual_identity)
+  if [ -n "$vid" ] && [ "$(echo "$vid" | jq -r '.exists')" = "true" ]; then ok "identity   : $(echo "$vid" | jq -r '.deviceId')"; else warn "identity   : missing, run: opencode-unlimited identity rotate"; fi
+  local cfg; cfg=$(get_config)
+  info "upstream   : $(p=$(echo "$cfg" | jq -r '.proxy'); [ -n "$p" ] && echo "$p" || echo "none (manual)")"
+  info "egress ip  : $(get_egress_ip "$(echo "$cfg" | jq -r '.proxy')")"
+}
+
+cmd_identity() {
+  local helper="$ROOT/lib/identity.js"
+  [ -f "$helper" ] || { bad "missing helper: $helper"; return; }
+  local action="show"
+  for a in "${REST[@]}"; do
+    case "$a" in rotate|--rotate) action="rotate";; restore|--restore) action="restore";; esac
+  done
+  local raw; raw=$(invoke_node_helper "$helper" "$action")
+  local data; data=$(echo "$raw" | jq . 2>/dev/null)
+  [ -z "$data" ] && { bad "identity helper returned nothing"; return; }
+  if [ "$action" = "restore" ]; then
+    ok "virtual device identity removed"
+    info "state   : $(echo "$data" | jq -r '.stateFile')"
+    info "the real machine guid was never written, nothing to undo there"
+    return
+  fi
+  step "==> device identity"
+  if [ "$(echo "$data" | jq -r '.exists')" != "true" ] && [ "$action" = "show" ]; then
+    warn "no virtual identity minted yet"
+    info "opencode-unlimited identity rotate"
+    return
+  fi
+  info "device id  : $(echo "$data" | jq -r '.deviceId')"
+  info "fingerprint: $(echo "$data" | jq -r '.fingerprint')"
+  info "generation : $(echo "$data" | jq -r '.generation')"
+  info "state      : $(echo "$data" | jq -r '.stateFile')"
+  info "value file : $(echo "$data" | jq -r '.shimFile')"
+  info "registry   : not touched"
+  [ "$action" = "rotate" ] && ok "new device identity minted"
+}
+
+cmd_block() {
+  local helper="$ROOT/lib/egress.js"
+  [ -f "$helper" ] || { bad "missing helper: $helper"; return; }
+  if printf '%s\n' "${REST[@]}" | grep -qx "clear\|--clear"; then
+    invoke_node_helper "$helper" clear >/dev/null
+    ok "egress ledger cleared for today"
+    return
+  fi
+  if printf '%s\n' "${REST[@]}" | grep -qx "check\|--check"; then
+    local cfg; cfg=$(get_config)
+    local proxy; proxy=$(echo "$cfg" | jq -r '.proxy // ""')
+    local ip; ip=$(get_egress_ip "$proxy" force)
+    [ -z "$ip" ] && { bad "could not read the egress ip"; return; }
+    local raw; raw=$(invoke_node_helper "$helper" check "$ip")
+    local data; data=$(echo "$raw" | jq . 2>/dev/null)
+    step "==> $ip  block $(echo "$data" | jq -r '.block // "?"')"
+    if [ "$(echo "$data" | jq -r '.spent')" = "true" ]; then
+      warn "SPENT - refused today, dead until 00:00 UTC"
+      info "change the address, or switch model"
+    else
+      ok "no refusal recorded today on this block"
+    fi
+    return
+  fi
+  local raw; raw=$(invoke_node_helper "$helper" show)
+  local data; data=$(echo "$raw" | jq . 2>/dev/null)
+  [ -z "$data" ] && { bad "egress ledger unreadable"; return; }
+  step "==> egress blocks seen today ($(echo "$data" | jq -r '.total'), spent $(echo "$data" | jq -r '.spent'))"
+  info "the meter keys on the block, an ipv4 address or an ipv6 /64"
+  echo "$data" | jq -c '.blocks[]' 2>/dev/null | while read -r row; do
+    local block state open refused last
+    block=$(echo "$row" | jq -r '.block')
+    if [ "$(echo "$row" | jq -r '.spent')" = "true" ]; then state="SPENT"; else state="open "; fi
+    open=$(echo "$row" | jq -r '.open')
+    refused=$(echo "$row" | jq -r '.refused')
+    last=$(echo "$row" | jq -r '.lastStatus')
+    info "$(printf '%-24s %s  open=%s refused=%s  last=%s' "$block" "$state" "$open" "$refused" "$last")"
+  done
+  local mins; mins=$(echo "$data" | jq -r '(.secondsToReset/60)|floor')
+  step ""
+  info "reset at 00:00 UTC, in $mins minutes"
+}
+
+cmd_usage() {
+  local cfg; cfg=$(get_config)
+  local deep=0
+  for a in "${REST[@]}"; do case "$a" in -check|--check|-live|--live) deep=1;; esac; done
+  step "==> free tier check"
+  local proxy; proxy=$(echo "$cfg" | jq -r '.proxy // ""')
+  local ip; ip=$(get_egress_ip "$proxy" force)
+  info "egress ip : ${ip:-unknown}"
+  cfg=$(printf '%s' "$cfg" | jq --arg ip "$ip" '.lastIp=$ip')
+  save_config "$cfg"
+  local helper="$ROOT/lib/egress.js"
+  local ledger; ledger=$(invoke_node_helper "$helper" show 2>/dev/null | jq . 2>/dev/null)
+  local row=""
+  if [ -n "$ledger" ] && [ -n "$ip" ]; then
+    local want; if [[ "$ip" == *:* ]]; then want=$(echo "$ip" | cut -d: -f1-4); else want="$ip"; fi
+    row=$(echo "$ledger" | jq -c --arg w "$want" '.blocks[] | select(.block | startswith($w))' 2>/dev/null | head -1)
+  fi
+  if [ -n "$row" ]; then
+    info "block     : $(echo "$row" | jq -r '.block')"
+    if [ "$(echo "$row" | jq -r '.spent')" = "true" ]; then
+      warn "SPENT - a refusal was recorded today (HTTP $(echo "$row" | jq -r '.lastStatus'))"
+      info "the meter is per egress block, every session on this address shares it"
+      info "change the address, or switch model, or wait for the reset"
+    else
+      ok "no refusal recorded today on this block"
+      local open; open=$(echo "$row" | jq -r '.open')
+      [ "$open" -gt 0 ] && info "$open answered requests seen today"
+    fi
+  else
+    info "block     : ${ip:-unknown}"
+    warn "nothing recorded today on this block"
+    info "a refusal gets logged here the next time the app reports one"
+  fi
+  if [ "$deep" = "1" ]; then
+    step ""
+    step "app check"
+    info "this opens a throwaway session and spends one real message"
+    # Invoke-AppProbe simplified: run opencode
+    local oc; oc=$(resolve_opencode)
+    local model="opencode/$(echo "$info" | jq -r '.freeModel')"
+    local tmpd; tmpd=$(mktemp -d /tmp/opencode/probe-XXXXXX)
+    local out; out=$(cd "$tmpd" && "$oc" run -m "$model" "reply with exactly: ok" 2>&1)
+    local code=$?
+    rm -rf "$tmpd"
+    if echo "$out" | grep -qiE "FreeUsageLimit|Free usage limit|free messages|free tier"; then
+      invoke_node_helper "$helper" record 429 0 >/dev/null
+      bad "BLOCKED - the app itself was refused on this connection"
+    elif [ "$code" -eq 0 ] && echo "$out" | grep -qw "ok"; then
+      invoke_node_helper "$helper" record 200 0 >/dev/null
+      ok "OPEN - the app answered on this connection"
+    else
+      warn "unconfirmed - app did not answer"
+    fi
+  fi
+  local midnight; midnight=$(date -u -d 'tomorrow 00:00' +%s 2>/dev/null || python3 -c "import datetime; print(int(datetime.datetime.now(datetime.timezone.utc).replace(hour=0,minute=0,second=0,microsecond=0).timestamp())+86400)")
+  local wait; wait=$(( (midnight - $(date +%s)) / 60 ))
+  step ""
+  info "reset : $(date -d "@$midnight" '+%I:%M %p' 2>/dev/null || date -r "$midnight" '+%I:%M %p') local   in $wait minutes"
+  info "skip the meter entirely: opencode-unlimited model"
+}
+
+cmd_sessions() {
+  local db; db=$(get_db_path)
+  [ -z "$db" ] && { bad "opencode.db not found"; return; }
+  node_sqlite_ok || { bad "node 22.5+ required"; return; }
+  local helper="$ROOT/lib/session-reid.js"
+  [ -f "$helper" ] || { bad "missing helper: $helper"; return; }
+  local target="${1:-}"
+  local args=("$db" "list")
+  [ -n "$target" ] && args+=("$target")
+  local raw; raw=$(invoke_node_helper "$helper" "${args[@]}")
+  local rows; rows=$(echo "$raw" | jq . 2>/dev/null)
+  if [ "$(echo "$rows" | jq 'length')" = "0" ] || [ -z "$rows" ]; then
+    warn "no sessions found"; return
+  fi
+  local info; info=$(get_opencode_info)
+  local schema; schema=$(echo "$info" | jq -r '.sessionTable // ""')
+# step "==> sessions ($(echo "$rows" | jq 'length')"$( [ -n "$schema" ] && echo ", table $schema" )"
+  local n; n=$(echo "$rows" | jq 'length')
+  local hdr="==> sessions ($n"
+  [ -n "$schema" ] && hdr="$hdr, table $schema"
+  step "$hdr)"
+  info "size is the replayed history, the thing a free turn has to pay for"
+  echo "$rows" | jq -c '.[]' | while read -r r; do
+    local id title when mb size
+    id=$(echo "$r" | jq -r '.id')
+    title=$(echo "$r" | jq -r '.title // ""')
+    [ -z "$title" ] && title="(untitled)"
+    title="${title:0:40}"
+    local updated; updated=$(echo "$r" | jq -r '.updated // 0')
+    if [ "$updated" -gt 0 ]; then
+      when=$(date -d "@$((updated/1000))" '+%-m/%-d %H:%M' 2>/dev/null || date -r "$((updated/1000))" '+%-m/%-d %H:%M')
+    else when=""; fi
+    local bytes; bytes=$(echo "$r" | jq -r '.bytes // 0')
+    mb=$(python3 -c "print(round($bytes/1048576,1))")
+    size=$(printf '%7s MB' "$mb")
+    info "$id  $(printf '%-12s' "$when")  $size  $title"
+  done
+}
+
+cmd_reid() {
+  node_sqlite_ok || { bad "node 22.5+ required"; return; }
+  local dry=0
+  for a in "${REST[@]}"; do case "$a" in -Dry|--dry) dry=1;; esac; done
+  local target=""
+  for a in "${REST[@]}"; do case "$a" in -*) continue;; esac; target="$a"; break; done
+  if [ -z "$target" ]; then
+    step "==> mint a fresh session id"
+    bad "name a session id or a folder"
+    info 'opencode-unlimited reid ses_abc123...'
+    info 'opencode-unlimited reid "/path/to/project" -Dry'
+    return
+  fi
+  local db; db=$(get_db_path)
+  [ -z "$db" ] && { bad "opencode.db not found"; return; }
+  local helper="$ROOT/lib/session-reid.js"
+  [ -f "$helper" ] || { bad "missing helper: $helper"; return; }
+  if [[ "$target" == ses_* ]]; then
+    [ "$dry" = "1" ] && info "dry run is for folders, a single id is one transaction"
+    step "==> minting a fresh session id"
+    local raw; raw=$(invoke_node_helper "$helper" "$db" "reid" "$target")
+    local result; result=$(echo "$raw" | jq . 2>/dev/null)
+    if [ -z "$result" ] || [ "$(echo "$result" | jq -r '.newId // ""')" = "" ] || [ "$(echo "$result" | jq -r '.error // ""')" != "" ]; then
+      bad "reid failed"
+      local reason; reason=$(echo "$result" | jq -r '.error // ""')
+      [ -z "$reason" ] && reason=$(echo "$raw" | grep -v '^$' | head -2 | tr '\n' ' ')
+      info "$reason"
+      return
+    fi
+    ok "old id : $(echo "$result" | jq -r '.oldId')"
+    ok "new id : $(echo "$result" | jq -r '.newId')"
+    info "table  : $(echo "$result" | jq -r '.sessionTable')"
+    info "messages: $(echo "$result" | jq -r '.messages')   rows moved: $(echo "$result" | jq -r '.moved')"
+    echo "$result" | jq -r '.touched[]?' 2>/dev/null | while read -r t; do [ -n "$t" ] && info "moved  : $t"; done
+    info "open the new id in the app, the messages are all there"
+    info "reid does not refill the quota, it only breaks a fork chain"
+    return
+  fi
+  # folder
+  step "==> re-id every session in $target"
+  local cmdargs=("$db" "reid-all" "$target")
+  [ "$dry" = "1" ] && cmdargs+=("--dry")
+  local raw; raw=$(invoke_node_helper "$helper" "${cmdargs[@]}")
+  local data; data=$(echo "$raw" | jq . 2>/dev/null)
+  if [ -z "$data" ]; then
+    bad "no result"; return
+  fi
+  if [ -n "$(echo "$data" | jq -r '.error // ""')" ]; then
+    bad "$(echo "$data" | jq -r '.error')"; return
+  fi
+  if [ "$(echo "$data" | jq -r '.dryRun // false')" = "true" ]; then
+    local mb; mb=$(echo "$data" | jq -r '([.results[].bytes]|add)/1048576' | awk '{printf "%.1f",$1}')
+    step "==> would re-id $(echo "$data" | jq -r '.selected') of $(echo "$data" | jq -r '.total') sessions, $mb MB"
+    echo "$data" | jq -c '.results[:15][]' | while read -r r; do
+      info "$(echo "$r" | jq -r '.oldId')  messages=$(echo "$r" | jq -r '.messages') refs=$(echo "$r" | jq -r '.refs')"
+    done
+    local tot; tot=$(echo "$data" | jq -r '.total')
+    [ "$tot" -gt 15 ] && info "... and $((tot-15)) more"
+    info "nothing was written, drop -Dry to run it"
+    return
+  fi
+  echo "$data" | jq -c '.results[]' | while read -r r; do
+    ok "$(echo "$r" | jq -r '.oldId')  ->  $(echo "$r" | jq -r '.newId')  ($(echo "$r" | jq -r '.messages') messages, $(echo "$r" | jq -r '.moved') rows moved)"
+  done
+  echo "$data" | jq -c '.failed[]?' | while read -r r; do
+    [ -n "$r" ] && bad "$(echo "$r" | jq -r '.oldId')  $(echo "$r" | jq -r '.error')"
+  done
+  info "total   : $(echo "$data" | jq -r '.total') sessions in that folder"
+  info "reid    : $(echo "$data" | jq -r '.reid')   failed: $(echo "$data" | jq -r '.failed | length')"
+  info "moved   : $(echo "$data" | jq -r '.rows') rows, $(echo "$data" | jq -r '.messages') messages kept"
+  info "no rows were deleted, the old ids are gone from the table"
+}
+
+cmd_clear() {
+  step "==> clearing stored limit errors"
+  local target=""
+  for a in "${REST[@]}"; do case "$a" in -*) continue;; esac; target="$a"; break; done
+  if [ -n "$target" ]; then
+    info "scope: $target"
+  else
+    info "scope: every session"
+  fi
+  local scope=""
+  [ -n "$target" ] && scope=$(convert_db_path "$target")
+  local out; out=$(invoke_db_tool "clear" "$scope")
+  [ -n "$out" ] && info "$(echo "$out" | tr '\n' ' ')"
+  info "the banner comes from stored error rows, not from the server"
+  info "if a new prompt still fails, your egress ip is still on the spent bucket"
+}
+
+invoke_db_tool() { # action argument
+  local action="$1"; local arg="${2:-}"
+  local db; db=$(get_db_path)
+  [ -z "$db" ] && { echo "opencode.db not found"; return; }
+  node_sqlite_ok || { echo "node 22.5+ required"; return; }
+  local helper="$ROOT/lib/db-tools.js"
+  [ -f "$helper" ] || { echo "missing helper: $helper"; return; }
+  local nodeargs=("$action" "$db")
+  [ -n "$arg" ] && nodeargs+=("$arg")
+  local raw; raw=$(invoke_node_helper "$helper" "${nodeargs[@]}")
+  [ -z "$raw" ] && { echo "no output from $helper"; return; }
+  printf '%s\n' "$raw"
+}
+
+cmd_verify() {
+  local fix=0
+  for a in "${REST[@]}"; do case "$a" in -fix|--fix) fix=1;; esac; done
+  step "==> checking session integrity"
+  local arg=""; [ "$fix" = "1" ] && arg="fix"
+  local out; out=$(invoke_db_tool "verify" "$arg")
+  local found=0
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    local t="$line"
+    if [[ "$t" == "no problems"* ]]; then ok "$t"
+    elif [[ "$t" =~ ^fixed\ [1-9] ]]; then ok "$t"
+    elif [[ "$t" =~ ^(opencode\.db|node\ 22|node\ not|missing\ helper|schema) ]]; then bad "$t"; found=1
+    else warn "$t"; found=1; fi
+  done <<< "$out"
+  if [ "$fix" != "1" ] && [ "$found" = "1" ]; then info "run with -fix to repair the listed items"; fi
+}
+
+cmd_model() {
+  local db; db=$(get_db_path)
+  [ -z "$db" ] && { bad "opencode.db not found"; return; }
+  node_sqlite_ok || { bad "node 22.5+ required"; return; }
+  local helper="$ROOT/lib/model-switch.js"
+  [ -f "$helper" ] || { bad "missing helper: $helper"; return; }
+  # collect non-flag args
+  local items=()
+  for a in "${REST[@]}"; do case "$a" in -*) continue;; esac; items+=("$a"); done
+  if [ "${#items[@]}" -eq 0 ]; then
+    local raw; raw=$(invoke_node_helper "$helper" "$db" "list")
+    local data; data=$(echo "$raw" | jq . 2>/dev/null)
+    if [ -z "$data" ] || [ "$(echo "$data" | jq -r '.providers // empty')" = "" ]; then
+      bad "could not read the model registry"
+      info "run opencode once so the cache fills, then try again"
+      return
+    fi
+    step "==> providers with credentials ($(echo "$data" | jq -r '.providers | length'))"
+    info "registry: $(echo "$data" | jq -r '.registry')"
+    info "free means the provider bills nothing for that model"
+    echo "$data" | jq -c '.providers[]' | while read -r p; do
+      local pid; pid=$(echo "$p" | jq -r '.providerID')
+      local models; models=$(echo "$p" | jq -r '.models | length')
+      local free; free=$(echo "$p" | jq -r '[.models[] | select(.free)] | length')
+      step ""
+      step "  $pid  models=$models  free=$free"
+      echo "$p" | jq -c '.models[] | select(.free)' | head -12 | while read -r m; do
+        local ctx=""; local c; c=$(echo "$m" | jq -r '.context // 0')
+        [ "$c" -gt 0 ] && ctx="  ctx $((c/1000))k"
+        info "    $pid/$(echo "$m" | jq -r '.id')$ctx"
+      done
+      if [ "$free" = "0" ]; then
+        echo "$p" | jq -c '.models[:4][]' | while read -r m; do
+          info "    $pid/$(echo "$m" | jq -r '.id')"
+        done
+      fi
+    done
+    step ""
+    info "switch a session: opencode-unlimited model <session-id|folder> provider/model"
+    return
+  fi
+  local target="" spec=""
+  if [ "${#items[@]}" -eq 1 ]; then
+    if is_model_spec "${items[0]}"; then spec="${items[0]}"; target="$(pwd)"; else target="${items[0]}"; fi
+  else
+    target="${items[0]}"; spec="${items[1]}"
+  fi
+  if [ -z "$spec" ]; then
+    local raw; raw=$(invoke_node_helper "$helper" "$db" "get" "$target")
+    local data; data=$(echo "$raw" | jq . 2>/dev/null)
+    if [ -z "$data" ] || [ -z "$(echo "$data" | jq -r '.sessions // ""')" ]; then
+      bad "could not read the model for that target"
+      [ -n "$(echo "$data" | jq -r '.error // ""')" ] && info "$(echo "$data" | jq -r '.error')"
+      return
+    fi
+    step "==> current model ($(echo "$data" | jq -r '.sessions | length') sessions)"
+    echo "$data" | jq -c '.sessions[]' | while read -r r; do
+      info "$(echo "$r" | jq -r '.id')  $(model_line "$r")"
+    done
+    return
+  fi
+  local raw; raw=$(invoke_node_helper "$helper" "$db" "set" "$target" "$spec")
+  local result; result=$(echo "$raw" | jq . 2>/dev/null)
+  if [ -z "$result" ] || [ -n "$(echo "$result" | jq -r '.error // ""')" ]; then
+    bad "switch failed"
+    [ -n "$(echo "$result" | jq -r '.error // ""')" ] && info "$(echo "$result" | jq -r '.error')"
+    return
+  fi
+  step "==> model switched"
+  info "target : $(echo "$result" | jq -r '.kind') $(echo "$result" | jq -r '.directory // ""')"
+  info "model  : $(echo "$result" | jq -r '.spec')"
+  echo "$result" | jq -c '.changed[]' | while read -r r; do
+    ok "$(echo "$r" | jq -r '.id')  $(model_line_before "$r") -> $(model_line_after "$r")"
+  done
+  info "sessions changed: $(echo "$result" | jq -r '.changed | length')"
+  step ""
+  local prov; prov=$(echo "$result" | jq -r '.applied.providerID')
+  if [ "$prov" = "opencode" ]; then
+    warn "opencode models are metered per egress address, this keeps the daily wall"
+  else
+    ok "this pipe is not metered by the opencode free wall"
+  fi
+  info "restart the app so the session picks up the new model"
+}
+
+is_model_spec() {
+  local v="$1"
+  [ -z "$v" ] && return 1
+  [[ "$v" =~ ^[A-Za-z]:[\\/] ]] && return 1
+  [[ "$v" == ses_* ]] && return 1
+  [[ "$v" != */* ]] && return 1
+  [ -e "$v" ] && return 1
+  return 0
+}
+
+model_line() {
+  local r="$1"
+  local prov id variant
+  prov=$(echo "$r" | jq -r '.model.providerID // ""')
+  id=$(echo "$r" | jq -r '.model.id // ""')
+  variant=$(echo "$r" | jq -r '.model.variant // ""')
+  if [ -z "$prov" ]; then echo "$r" | jq -c '.model'; return; fi
+  local text="$prov/$id"
+  [ -n "$variant" ] && text="$text#$variant"
+  echo "$text"
+}
+model_line_before() { local r="$1"; echo "$r" | jq -r '"\(.before.providerID)/\(.before.id)\(if .before.variant then "#" + .before.variant else "" end)"'; }
+model_line_after() { local r="$1"; echo "$r" | jq -r '"\(.after.providerID)/\(.after.id)\(if .after.variant then "#" + .after.variant else "" end)"'; }
+
+cmd_reset() {
+  local dry=0 keep=0
+  for a in "${REST[@]}"; do case "$a" in -Dry|--dry) dry=1;; -KeepIds|--keep-ids) keep=1;; esac; done
+  local target=""
+  for a in "${REST[@]}"; do case "$a" in -*) continue;; esac; target="$a"; break; done
+  step "$( [ "$dry" = "1" ] && echo "==> reset (dry run, nothing is written)" || echo "==> reset" )"
+  local cfg; cfg=$(get_config)
+  local proxy; proxy=$(echo "$cfg" | jq -r '.proxy // ""')
+  local ip_before; ip_before=$(get_egress_ip "$proxy" force)
+  info "egress ip before: ${ip_before:-unknown}"
+  step ""
+  step "[1/6] device identity"
+  local idhelper="$ROOT/lib/identity.js"
+  if [ -f "$idhelper" ]; then
+    local action="rotate"; [ "$dry" = "1" ] && action="show"
+    local raw; raw=$(invoke_node_helper "$idhelper" "$action")
+    local identity; identity=$(echo "$raw" | jq . 2>/dev/null)
+    if [ -n "$identity" ] && [ -n "$(echo "$identity" | jq -r '.deviceId // ""')" ]; then
+      if [ "$dry" = "1" ]; then info "current id: $(echo "$identity" | jq -r '.deviceId')"; else ok "device id : $(echo "$identity" | jq -r '.deviceId')"; fi
+      info "generation: $(echo "$identity" | jq -r '.generation')   fingerprint: $(echo "$identity" | jq -r '.fingerprint')"
+      info "local only, the registry and the real machine guid are untouched"
+    else
+      warn "device identity skipped"
+    fi
+  fi
+  step ""
+  step "[2/6] stored limit errors"
+  if [ "$dry" = "1" ]; then info "skipped in a dry run"
+  else
+    local scope=""; [ -n "$target" ] && scope=$(convert_db_path "$target")
+    local out; out=$(invoke_db_tool "clear" "$scope")
+    [ -n "$out" ] && info "$(echo "$out" | tr '\n' ' ')"
+  fi
+  step ""
+  step "[3/6] session ids"
+  if [ "$keep" = "1" ]; then info "skipped, -KeepIds was passed"
+  elif [ -z "$target" ]; then info "skipped, name a folder to re-id its sessions"; info 'opencode-unlimited reset "/path/to/project"'
+  elif ! node_sqlite_ok; then warn "node 22.5+ required, session ids left alone"
+  else
+    # invoke reid-all
+    local db; db=$(get_db_path)
+    local helper="$ROOT/lib/session-reid.js"
+    local cmdargs=("$db" "reid-all" "$target")
+    [ "$dry" = "1" ] && cmdargs+=("--dry")
+    local raw; raw=$(invoke_node_helper "$helper" "${cmdargs[@]}")
+    local data; data=$(echo "$raw" | jq . 2>/dev/null)
+    # reuse show logic compactly
+    if [ -z "$data" ]; then bad "no result"; 
+    elif [ -n "$(echo "$data" | jq -r '.error // ""')" ]; then bad "$(echo "$data" | jq -r '.error')"
+    elif [ "$(echo "$data" | jq -r '.dryRun // false')" = "true" ]; then
+      local mb; mb=$(echo "$data" | jq -r '([.results[].bytes]|add)/1048576' 2>/dev/null | awk '{printf "%.1f",$1}')
+      step "==> would re-id $(echo "$data" | jq -r '.selected') of $(echo "$data" | jq -r '.total') sessions, ${mb:-0} MB"
+    else
+      echo "$data" | jq -c '.results[]' | while read -r r; do ok "$(echo "$r" | jq -r '.oldId')  ->  $(echo "$r" | jq -r '.newId')  ($(echo "$r" | jq -r '.messages') messages, $(echo "$r" | jq -r '.moved') rows moved)"; done
+      info "total   : $(echo "$data" | jq -r '.total') sessions in that folder"
+      info "reid    : $(echo "$data" | jq -r '.reid')   failed: $(echo "$data" | jq -r '.failed | length')"
+    fi
+  fi
+  step ""
+  step "[4/6] egress route"
+  # Invoke-EgressRotation simplified
+  local pool; pool=$(echo "$cfg" | jq -r '.proxyPool // [] | .[]')
+  if [ -z "$pool" ]; then
+    local p; p=$(echo "$cfg" | jq -r '.proxy // ""')
+    if [ -n "$p" ]; then
+      if [ "$dry" = "1" ]; then info "would apply: $p"
+      else apply_proxy "$cfg"; cfg=$(get_config); restart_service; fi
+    else
+      info "manual mode, no proxy configured"
+      info "change the network yourself, or load a pool: opencode-unlimited proxy pool add socks5://host:port"
+    fi
+  else
+    if [ "$dry" = "1" ]; then
+      local idx; idx=$(echo "$cfg" | jq -r '.proxyIndex // 0')
+      local cnt; cnt=$(echo "$cfg" | jq -r '.proxyPool | length')
+      local next; next=$(echo "$cfg" | jq -r ".proxyPool[((($idx + 1) % $cnt))]")
+      info "would rotate to: $next ($cnt in the pool)"
+    else
+      local tries; tries=$(echo "$cfg" | jq -r '[.proxyPool | length, 8] | min')
+      local i=0
+      while [ "$i" -lt "$tries" ]; do
+        cfg=$(echo "$cfg" | jq '.proxyIndex = (((.proxyIndex // 0) + 1) % (.proxyPool | length))')
+        local url; url=$(echo "$cfg" | jq -r '.proxyPool[.proxyIndex]')
+        info "trying proxy $(( $(echo "$cfg" | jq -r '.proxyIndex')+1 ))/$(echo "$cfg" | jq -r '.proxyPool | length'): $url"
+        cfg=$(echo "$cfg" | jq --arg u "$url" '.proxy=$u | .ipMode="proxy"')
+        save_config "$cfg"
+        if apply_proxy "$cfg"; then
+          restart_service
+          sleep 1
+          local ip; ip=$(get_egress_ip "$url" force)
+          if [ -z "$ip" ]; then warn "egress ip unknown through this proxy, next"; 
+          elif [ -n "$ip_before" ] && [ "$ip" = "$ip_before" ]; then warn "same egress ip: $ip, next"
+          else ok "egress via $url -> $ip"; break; fi
+        fi
+        i=$((i+1))
+      done
+    fi
+  fi
+  step ""
+  step "[5/6] egress block"
+  sleep 1
+  local ip_after; ip_after=$(get_egress_ip "$proxy" force)
+  if [ "$dry" = "1" ]; then
+    info "ip now: ${ip_after:-unknown}, nothing recorded"
+  else
+    cfg=$(printf '%s' "$cfg" | jq --arg ip "$ip_after" '.lastIp=$ip')
+    save_config "$cfg"
+    local ehelper="$ROOT/lib/egress.js"
+    if [ -f "$ehelper" ] && [ -n "$ip_after" ]; then
+      UNLIMITED_EGRESS_IP="$ip_after" invoke_node_helper "$ehelper" record 0 0 >/dev/null
+    fi
+    if [ -z "$ip_after" ]; then warn "egress ip unknown"
+    elif [ "$ip_after" = "$ip_before" ]; then
+      warn "ip unchanged: $ip_after"
+      info "the meter follows the egress block, not the project, the session or the device"
+      info "if a refusal was logged today, this block stays spent until 00:00 UTC"
+      info "change the connection, or switch model to leave the meter behind"
+    else
+      ok "new egress ip: $ip_after"
+    fi
+  fi
+  step ""
+  step "[6/6] database"
+  if [ "$dry" = "1" ]; then info "skipped in a dry run"
+  else
+    cmd_verify -fix >/dev/null 2>&1 || true
+    info "sessions and messages untouched"
+  fi
+  step ""
+  local midnight; midnight=$(date -u -d 'tomorrow 00:00' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
+  if [ "$dry" = "1" ]; then ok "dry run complete, nothing was written"
+  else ok "reset complete"; fi
+  info "quota resets at $(date -d "$midnight" '+%I:%M %p' 2>/dev/null || echo "$midnight") local, $(date -u -d "$midnight" '+%H:%M' 2>/dev/null) UTC"
+  info "switch model to skip the meter: opencode-unlimited model provider/model"
+}
+
+apply_proxy() { # cfg json
+  local cfg="$1"
+  local proxy; proxy=$(echo "$cfg" | jq -r '.proxy // ""')
+  local oc; oc=$(resolve_opencode)
+  if [ -z "$proxy" ]; then
+    "$oc" service unset env HTTPS_PROXY >/dev/null 2>&1 || true
+    "$oc" service unset env HTTP_PROXY >/dev/null 2>&1 || true
+    "$oc" service unset env ALL_PROXY >/dev/null 2>&1 || true
+    "$oc" service set env NO_PROXY "localhost,127.0.0.1" >/dev/null 2>&1 || true
+    ok "service proxy cleared, direct egress"
+    return 0
+  fi
+  local url="$proxy"
+  local via_bridge=0
+  if [[ "$proxy" =~ ^socks5h?:// ]]; then
+    if ! start_bridge "$cfg"; then return 1; fi
+    local port; port=$(echo "$cfg" | jq -r '.bridgePort')
+    url="http://127.0.0.1:$port"
+    via_bridge=1
+  fi
+  if ! test_upstream "$url"; then
+    bad "upstream not answering: $proxy"
+    info "opencode was not switched, fix the proxy and retry"
+    [ "$via_bridge" = "1" ] && stop_bridge
+    return 1
+  fi
+  ok "upstream reachable"
+  local oc; oc=$(resolve_opencode)
+  "$oc" service set env HTTPS_PROXY "$url" >/dev/null 2>&1
+  "$oc" service set env HTTP_PROXY "$url" >/dev/null 2>&1
+  "$oc" service set env ALL_PROXY "$url" >/dev/null 2>&1
+  "$oc" service set env NO_PROXY "localhost,127.0.0.1" >/dev/null 2>&1
+  ok "service proxy set: $url"
+  return 0
+}
+
+start_bridge() {
+  local cfg="$1"
+  local bpid; bpid=$(read_file "$PID_FILE" | tr -d '[:space:]')
+  if [ -n "$bpid" ] && kill -0 "$bpid" 2>/dev/null; then
+    info "bridge already running (pid $bpid)"; return 0
+  fi
+  local node; node=$(command -v node 2>/dev/null)
+  [ -z "$node" ] && { bad "node not found on PATH, bridge cannot start"; return 1; }
+  [ -f "$BRIDGE_JS" ] || { bad "bridge script missing: $BRIDGE_JS"; return 1; }
+  local port; port=$(echo "$cfg" | jq -r '.bridgePort')
+  local proxy; proxy=$(echo "$cfg" | jq -r '.proxy')
+  local args=("$BRIDGE_JS" --listen "127.0.0.1:$port" --upstream "$proxy" --log "$LOG_FILE")
+  nohup "$node" "${args[@]}" >/dev/null 2>&1 &
+  local pid=$!
+  echo "$pid" > "$PID_FILE"
+  sleep 0.8
+  if kill -0 "$pid" 2>/dev/null; then
+    ok "bridge up on 127.0.0.1:$port -> $proxy"; return 0
+  fi
+  bad "bridge exited, see $LOG_FILE"
+  return 1
+}
+
+stop_bridge() {
+  local bpid; bpid=$(read_file "$PID_FILE" | tr -d '[:space:]')
+  if [ -n "$bpid" ] && kill -0 "$bpid" 2>/dev/null; then
+    kill -9 "$bpid" 2>/dev/null || true
+    ok "bridge stopped"
+  fi
+  rm -f "$PID_FILE"
+}
+
+test_upstream() {
+  local url="$1"
+  local curl; curl=$(get_curl)
+  [ -z "$curl" ] && return 0
+  local out; out=$("$curl" -s --max-time 10 --proxy "$url" "$TRACE_URL" 2>/dev/null)
+  echo "$out" | grep -q "ip=" 
+}
+
+restart_service() {
+  local oc; oc=$(resolve_opencode)
+  info "restarting background service"
+  "$oc" service restart >/dev/null 2>&1 || warn "service restart failed"
+}
+
+# proxy command
+cmd_proxy() {
+  local cfg; cfg=$(get_config)
+  local sub="status"
+  [ "${#REST[@]}" -ge 1 ] && sub="${REST[0]}"
+  case "$sub" in
+    off)
+      stop_bridge
+      cfg=$(printf '%s' "$cfg" | jq '.proxy="" | .ipMode="manual"')
+      save_config "$cfg"
+      apply_proxy "$cfg"
+      restart_service
+      info "egress is direct again"
+      ;;
+    next)
+      # simplified: call egress rotation without avoid
+      # reuse reset's rotation inline minimal: just advance pool
+      info "proxy next not fully implemented";;
+    pool)
+      local action="show"
+      [ "${#REST[@]}" -ge 2 ] && action="${REST[1]}"
+      case "$action" in
+        add)
+          local urls=("${REST[@]:2}")
+          [ "${#urls[@]}" -eq 0 ] && { bad "expected one or more proxy urls"; return; }
+          local pool; pool=$(echo "$cfg" | jq -r '.proxyPool // [] | .[]')
+          local added=0
+          local newpool; newpool=$(echo "$cfg" | jq -r '.proxyPool // []')
+          for url in "${urls[@]}"; do
+            if ! [[ "$url" =~ ^(socks5h?|http|https):// ]]; then bad "skipped, not a proxy url: $url"; continue; fi
+            if echo "$newpool" | jq -e --arg u "$url" 'index($u)' >/dev/null 2>&1; then info "already in the pool: $url"; continue; fi
+            newpool=$(echo "$newpool" | jq --arg u "$url" '. + [$u]')
+            added=$((added+1))
+          done
+          cfg=$(printf '%s' "$cfg" | jq --argjson p "$newpool" '.proxyPool=$p')
+          save_config "$cfg"
+          ok "pool size: $(echo "$newpool" | jq 'length') (+$added)"
+          show_proxy_pool "$cfg"
+          ;;
+        set)
+          local urls=()
+          for u in "${REST[@]:2}"; do [[ "$u" =~ ^(socks5h?|http|https):// ]] && urls+=("$u"); done
+          [ "${#urls[@]}" -eq 0 ] && { bad "expected one or more proxy urls"; return; }
+          local json; json=$(printf '%s\n' "${urls[@]}" | jq -R . | jq -s .)
+          cfg=$(printf '%s' "$cfg" | jq --argjson p "$json" '.proxyPool=$p | .proxyIndex=0')
+          save_config "$cfg"
+          ok "pool replaced, ${#urls[@]} entries"
+          show_proxy_pool "$cfg"
+          ;;
+        clear)
+          cfg=$(printf '%s' "$cfg" | jq '.proxyPool=[] | .proxyIndex=0')
+          save_config "$cfg"
+          ok "pool cleared, the current upstream was left alone"
+          ;;
+        *)
+          show_proxy_pool "$cfg"
+          ;;
+      esac
+      ;;
+    status)
+      info "upstream : $(p=$(echo "$cfg" | jq -r '.proxy'); [ -n "$p" ] && echo "$p" || echo "none (manual)")"
+      info "bridge   : 127.0.0.1:$(echo "$cfg" | jq -r '.bridgePort')"
+      info "ip       : $(get_egress_ip "$(echo "$cfg" | jq -r '.proxy')")"
+      show_proxy_pool "$cfg"
+      ;;
+    *)
+      local url
+      if [ "$sub" = "set" ] && [ "${#REST[@]}" -ge 2 ]; then url="${REST[1]}"; else url="${REST[0]}"; fi
+      if ! [[ "$url" =~ ^(socks5h?|http|https):// ]]; then bad "expected socks5://host:port or http://host:port"; return; fi
+      cfg=$(printf '%s' "$cfg" | jq --arg u "$url" '.proxy=$u | .ipMode="proxy"')
+      if ! apply_proxy "$cfg"; then
+        cfg=$(printf '%s' "$cfg" | jq '.proxy="" | .ipMode="manual"')
+        save_config "$cfg"
+        info "state left on manual, nothing was restarted"
+        return
+      fi
+      save_config "$cfg"
+      restart_service
+      sleep 1
+      info "egress ip via proxy: $(get_egress_ip "$url")"
+      ;;
+  esac
+}
+
+show_proxy_pool() {
+  local cfg="$1"
+  local pool; pool=$(echo "$cfg" | jq -r '.proxyPool // [] | .[]')
+  if [ -z "$pool" ]; then info "pool: empty"; info "opencode-unlimited proxy pool add socks5://host:port"; return; fi
+  local active; active=$(echo "$cfg" | jq -r '.proxyIndex // 0')
+  local cnt; cnt=$(echo "$cfg" | jq -r '.proxyPool | length')
+  info "pool: $cnt entries, active #$((active+1))"
+  local i=0
+  while IFS= read -r u; do
+    local mark="  "; [ "$i" = "$active" ] && mark="->"
+    info "  $mark $((i+1)). $u"
+    i=$((i+1))
+  done <<< "$pool"
+}
+
+cmd_warp() {
+  local warp="warp-cli"
+  command -v warp-cli >/dev/null 2>&1 || warp=""
+  if [ -z "$warp" ]; then bad "warp-cli not found, install Cloudflare WARP or use: proxy set socks5://host:port"; return; fi
+  local cfg; cfg=$(get_config)
+  local sub="status"; [ "${#REST[@]}" -ge 1 ] && sub="${REST[0]}"
+  case "$sub" in
+    on)
+      "$warp" mode proxy >/dev/null 2>&1
+      "$warp" proxy port 40000 >/dev/null 2>&1
+      "$warp" connect >/dev/null 2>&1
+      cfg=$(printf '%s' "$cfg" | jq '.proxy="socks5://127.0.0.1:40000" | .ipMode="warp"')
+      save_config "$cfg"
+      apply_proxy "$cfg"
+      restart_service
+      ok "warp proxy mode on, opencode routed through the bridge"
+      ;;
+    off)
+      "$warp" disconnect >/dev/null 2>&1
+      stop_bridge
+      cfg=$(printf '%s' "$cfg" | jq '.proxy="" | .ipMode="manual"')
+      save_config "$cfg"
+      apply_proxy "$cfg"
+      restart_service
+      ok "warp off, direct egress"
+      ;;
+    rotate)
+      info "reconnecting warp, this can change the egress ip"
+      local before; before=$(get_egress_ip "$(echo "$cfg" | jq -r '.proxy')")
+      "$warp" disconnect >/dev/null 2>&1
+      sleep 2
+      "$warp" connect >/dev/null 2>&1
+      sleep 4
+      local after; after=$(get_egress_ip "$(echo "$cfg" | jq -r '.proxy')")
+      if [ "$after" = "$before" ]; then
+        warn "ip unchanged: $after"
+        info "warp does not guarantee a new ip, reconnect again or use a proxy"
+      else
+        ok "new egress ip: $before -> $after"
+      fi
+      ;;
+    *)
+      "$warp" status 2>&1 | while read -r l; do info "$l"; done
+      ;;
+  esac
+}
+
+cmd_run() {
+  [ "${#REST[@]}" -eq 0 ] && { bad "usage: opencode-unlimited run <opencode args>"; return; }
+  local oc; oc=$(resolve_opencode)
+  local attempt=1
+  while [ "$attempt" -le 3 ]; do
+    local out; out=$("$oc" "${REST[@]}" 2>&1)
+    local code=$?
+    if echo "$out" | grep -qiE "FreeUsageLimit|Free usage limit|free messages|free tier"; then
+      warn "free limit hit (attempt $attempt/3)"
+      local helper="$ROOT/lib/egress.js"
+      [ -f "$helper" ] && UNLIMITED_EGRESS_IP="$(get_egress_ip "$(get_config | jq -r '.proxy')" force)" invoke_node_helper "$helper" record 429 0 >/dev/null
+      local idhelper="$ROOT/lib/identity.js"
+      [ -f "$idhelper" ] && invoke_node_helper "$idhelper" rotate >/dev/null
+      local cfg; cfg=$(get_config)
+      if [ -n "$(echo "$cfg" | jq -r '.proxy')" ]; then apply_proxy "$cfg"; restart_service; fi
+      sleep 2
+      attempt=$((attempt+1))
+      continue
+    fi
+    printf '%s\n' "$out"
+    return "$code"
+  done
+  bad "still limited after 3 attempts"
+  info "the meter follows the egress block, change the connection and run: opencode-unlimited usage"
+  return 1
+}
+
+cmd_on() {
+  [ -f "$BUNDLED_PLUGIN" ] || { bad "bundled plugin missing: $BUNDLED_PLUGIN"; return; }
+  mkdir -p "$PLUGIN_DIR"
+  cp "$BUNDLED_PLUGIN" "$PLUGIN_FILE"
+  ok "plugin deployed: $PLUGIN_FILE"
+  # enable
+  if [ -f "$PLUGIN_FILE.disabled" ]; then mv "$PLUGIN_FILE.disabled" "$PLUGIN_FILE"; fi
+  ok "identity plugin enabled"
+}
+
+cmd_off() {
+  if [ -f "$PLUGIN_FILE" ]; then mv "$PLUGIN_FILE" "$PLUGIN_FILE.disabled"; fi
+  ok "identity plugin disabled"
+}
+
+cmd_install() {
+  step "==> installing opencode-unlimited"
+  # slash commands
+  install_slash_commands
+  local cfg; cfg=$(get_config)
+  # org id discovery via oc-info
+  local info; info=$(get_opencode_info)
+  local org; org=$(echo "$info" | jq -r '.orgId // ""')
+  if [ -n "$org" ]; then ok "org id discovered: $org"; cfg=$(printf '%s' "$cfg" | jq --arg o "$org" '.orgId=$o'); else warn "org id not discovered yet, run opencode once and retry"; fi
+  save_config "$cfg"
+  # PATH
+  local bindir="$SCRIPT_DIR"
+  local profile_files=("$USER_HOME/.bashrc" "$USER_HOME/.profile")
+  for f in "${profile_files[@]}"; do
+    if ! grep -q "opencode-unlimited" "$f" 2>/dev/null; then
+      printf '\n# opencode-unlimited\nexport PATH="%s:$PATH"\n' "$bindir" >> "$f"
+    fi
+  done
+  export PATH="$bindir:$PATH"
+  ok "added to PATH: $bindir"
+  info "open a new terminal to pick it up"
+  if [ -f "$PLUGIN_FILE" ]; then
+    warn "an old header plugin is still present"
+    info "remove it with: opencode-unlimited off"
+  else
+    ok "header plugin not installed (it does not change the quota)"
+  fi
+  step ""
+  ok "done. try: opencode-unlimited usage"
+}
+
+install_slash_commands() {
+  local cfgpath="$CONFIG_DIR/opencode.jsonc"
+  [ -f "$cfgpath" ] || cfgpath="$CONFIG_DIR/opencode.json"
+  [ -f "$cfgpath" ] || { warn "no opencode config found, slash commands skipped"; return; }
+  local cli="$SCRIPT_DIR/opencode-unlimited"
+  local tail=$'\n\nAnswer with one short line about what the output above reported. No more.'
+  # use python to merge
+  python3 - "$cfgpath" "$cli" "$tail" <<'PY'
+import json,sys
+path,cli,tail=sys.argv[1],sys.argv[2],sys.argv[3]
+try:
+    raw=open(path).read().lstrip('\ufeff')
+    cfg=json.loads(raw)
+except Exception:
+    cfg={}
+if not isinstance(cfg,dict): cfg={}
+cfg.setdefault("commands",{})
+defs={
+ "opencode-unlimited":{"args":"status","desc":"OpenCode free-tier helper - identity, egress block, reset clock"},
+ "opencode-unlimited:reset":{"args":"reset","desc":"new device identity, new session ids, clear stuck errors; pass a folder"},
+ "opencode-unlimited:identity":{"args":"identity","desc":"show, rotate or restore the virtual device identity"},
+ "opencode-unlimited:block":{"args":"block","desc":"egress blocks seen today and which are spent"},
+ "opencode-unlimited:usage":{"args":"usage","desc":"daily free bucket state and the reset clock"},
+ "opencode-unlimited:clear":{"args":"clear","desc":"strip stored free-limit errors from sessions"},
+ "opencode-unlimited:reid":{"args":"reid","desc":"mint fresh session ids, keep every message"},
+ "opencode-unlimited:model":{"args":"model","desc":"list providers and switch this folder to a free model"},
+}
+argnames={"opencode-unlimited:reset","opencode-unlimited:clear","opencode-unlimited:reid","opencode-unlimited:model"}
+for name,d in defs.items():
+    argtext=d["args"]
+    if name in argnames: argtext=argtext+' "$ARGUMENTS"'
+    template='!`'+cli+' '+argtext+'`'+tail
+    cfg["commands"][name]={"description":d["desc"],"template":template}
+open(path,"w").write(json.dumps(cfg,indent=2))
+print("slash commands: "+", ".join(defs.keys()))
+PY
+}
+
+cmd_uninstall() {
+  step "==> uninstalling opencode-unlimited"
+  stop_bridge
+  if [ -f "$PLUGIN_FILE" ]; then mv "$PLUGIN_FILE" "$PLUGIN_FILE.disabled" 2>/dev/null; fi
+  rm -f "$PLUGIN_FILE" "$PLUGIN_FILE.disabled"
+  ok "plugin removed"
+  local cfgpath="$CONFIG_DIR/opencode.jsonc"
+  [ -f "$cfgpath" ] || cfgpath="$CONFIG_DIR/opencode.json"
+  if [ -f "$cfgpath" ]; then
+    python3 - "$cfgpath" <<'PY'
+import json,sys
+path=sys.argv[1]
+try:
+    raw=open(path).read().lstrip('\ufeff')
+    cfg=json.loads(raw)
+except Exception:
+    print("config not touched"); sys.exit()
+if isinstance(cfg,dict) and isinstance(cfg.get("commands"),dict):
+    for n in list(cfg["commands"].keys()):
+        if n.startswith("opencode-unlimited"):
+            del cfg["commands"][n]
+    open(path,"w").write(json.dumps(cfg,indent=2))
+    print("slash commands removed")
+PY
+  fi
+  local oc; oc=$(resolve_opencode)
+  "$oc" service unset env HTTPS_PROXY >/dev/null 2>&1 || true
+  "$oc" service unset env HTTP_PROXY >/dev/null 2>&1 || true
+  "$oc" service unset env ALL_PROXY >/dev/null 2>&1 || true
+  ok "service proxy cleared"
+  rm -f "$STATE_FILE" "$INFO_FILE" "$PID_FILE" "$LOG_FILE"
+  ok "state files removed"
+  info "repo and PATH entry kept, delete manually if you want: $ROOT"
+}
+
+# ---------- main dispatch ----------
+COMMAND="${1:-help}"
+shift || true
+REST=("$@")
+
+case "$COMMAND" in
+  install) cmd_install ;;
+  reset) cmd_reset ;;
+  clear) cmd_clear ;;
+  verify) cmd_verify ;;
+  identity) cmd_identity ;;
+  block) cmd_block ;;
+  usage) cmd_usage ;;
+  status) cmd_status ;;
+  sessions) cmd_sessions "${REST[@]}" ;;
+  model) cmd_model ;;
+  reid) cmd_reid ;;
+  version|-v|--version) cmd_version ;;
+  on) cmd_on ;;
+  off) cmd_off ;;
+  proxy) cmd_proxy ;;
+  warp) cmd_warp ;;
+  run) cmd_run ;;
+  doctor) cmd_doctor ;;
+  uninstall) cmd_uninstall ;;
+  help|--help|-h) cmd_help ;;
+  *) cmd_help ;;
+esac

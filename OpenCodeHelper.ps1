@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     OpenCode Helper - Production Native GUI for Windows (WPF/PowerShell)
     Combines OpenCode Unlimited reset workflows, ExpressVPN region switching,
@@ -716,10 +716,17 @@ $comboProj.Add_DropDownOpened({
 # Paths for OpenCode-Unlimited
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $unlimitedCmdCandidates = @(
-    (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+    (Join-Path $scriptRoot "OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
     (Join-Path $scriptRoot "OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+    (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+    (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+    "D:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.ps1",
+    "D:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.cmd",
+    (Join-Path $userHome "Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
     (Join-Path $userHome "Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+    (Join-Path $userHome "OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
     (Join-Path $userHome "OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+    "opencode-unlimited.ps1",
     "opencode-unlimited.cmd"
 )
 $script:unlimitedCmd = "opencode-unlimited.cmd"
@@ -860,29 +867,8 @@ function Check-StatusAsync([bool]$Silent = $false) {
             }
             $script:lastKnownIp = $ip
 
-            # Direct OpenCode gateway probe
             $isRateLimited = $false
             $quotaDetails = "Ready (Free Tier Available)"
-
-            try {
-                $req = [System.Net.HttpWebRequest]::Create("https://opencode.ai/inference/openai/v1/chat/completions")
-                $req.Method = "POST"
-                $req.ContentType = "application/json"
-                $req.UserAgent = "curl/8.0"
-                $req.Timeout = 4000
-                $bytes = [System.Text.Encoding]::UTF8.GetBytes('{"model":"deepseek-v4.1-flash-free","messages":[{"role":"user","content":"hi"}]}')
-                $req.ContentLength = $bytes.Length
-                $st = $req.GetRequestStream()
-                $st.Write($bytes, 0, $bytes.Length)
-                $st.Close()
-                $resp = $req.GetResponse()
-                $resp.Close()
-            } catch [System.Net.WebException] {
-                if ($_.Response -and [int]$_.Response.StatusCode -eq 429) {
-                    $isRateLimited = $true
-                    $quotaDetails = "Rate-Limited (HTTP 429 Free Limit Reached)"
-                }
-            } catch {}
 
             # Check local spent ledger
             if (-not $isRateLimited) {
@@ -904,39 +890,7 @@ function Check-StatusAsync([bool]$Silent = $false) {
                 }
             }
 
-            # Check OpenCode engine log
-            if (-not $isRateLimited) {
-                $ocLogPath = Join-Path $userHome ".local\share\opencode\log\opencode.log"
-                if (Test-Path $ocLogPath) {
-                    try {
-                        $tail = Get-Content -Path $ocLogPath -Tail 50 -ErrorAction SilentlyContinue | Out-String
-                        if ($tail -match "Free usage limit reached" -or $tail -match "provider\.free-limit") {
-                            $isRateLimited = $true
-                            $quotaDetails = "Rate-Limited (Free limit exhausted on current IP)"
-                            try {
-                                $egressFile = Join-Path $userHome ".config\opencode\unlimited-egress.json"
-                                $today = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
-                                $state = @{ day = $today; addresses = @{} }
-                                if (Test-Path $egressFile) {
-                                    $raw = [System.IO.File]::ReadAllText($egressFile)
-                                    $loaded = $jser.DeserializeObject($raw)
-                                    if ($loaded["day"] -eq $today) { $state = $loaded }
-                                }
-                                $key = "$ip/32"
-                                $state["addresses"][$key] = @{
-                                    ip = $ip
-                                    country = $country
-                                    spent = $true
-                                    lastStatus = 429
-                                    lastSeen = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-                                    note = "OpenCode free usage limit reached"
-                                }
-                                [System.IO.File]::WriteAllText($egressFile, $jser.Serialize($state))
-                            } catch {}
-                        }
-                    } catch {}
-                }
-            }
+            # Quota status is determined strictly by the ledger or active session without false-positive poisoning
 
             $window.Dispatcher.Invoke([Action]{
                 $lblIp.Text = $ipText
@@ -1017,6 +971,17 @@ function Invoke-AsyncProcess {
     $proc.BeginErrorReadLine()
 }
 
+function Invoke-UnlimitedCommand {
+    param([string]$Arguments, [scriptblock]$OnDone)
+
+    $ps1 = if ($script:unlimitedCmd -like "*.ps1") { $script:unlimitedCmd } else { [System.IO.Path]::ChangeExtension($script:unlimitedCmd, ".ps1") }
+    if (Test-Path $ps1) {
+        Invoke-AsyncProcess -FilePath "powershell.exe" -Arguments "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$ps1`" $Arguments" -OnDone $OnDone
+    } else {
+        Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"`"$script:unlimitedCmd`" $Arguments`"" -OnDone $OnDone
+    }
+}
+
 # 1-Click Clean Reset
 $btnReset.Add_Click({
     $proj = $comboProj.Text
@@ -1029,11 +994,17 @@ $btnReset.Add_Click({
 
     # 1. Terminate OpenCode safely without killing self
     Append-Log "Terminating OpenCode instances (safe)..."
-    Get-Process -Name "opencode", "OpenCode", "opencode-cli" -ErrorAction SilentlyContinue |
-        Where-Object { $_.Id -ne $PID } |
-        Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process | Where-Object { 
+        $_.Id -ne $PID -and (
+            $_.ProcessName -like "*opencode*" -or
+            $_.ProcessName -eq "OpenCode Desktop" -or
+            $_.ProcessName -eq "ai.opencode.desktop"
+        ) -and $_.ProcessName -notlike "*OpenCodeHelper*" -and $_.ProcessName -notlike "*opencode-manager*"
+    } | Stop-Process -Force -ErrorAction SilentlyContinue
 
-    Start-Sleep -Milliseconds 300
+    Start-Process -FilePath "taskkill.exe" -ArgumentList "/F /T /IM `"OpenCode Desktop.exe`" /IM `"ai.opencode.desktop.exe`" /IM `"opencode.exe`" /IM `"opencode-cli.exe`"" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
+
+    Start-Sleep -Milliseconds 500
 
     $isAll = ($proj -eq "All Workspaces (All Sessions)" -or $proj -like "All Workspaces*")
     if ($isAll) {
@@ -1046,11 +1017,16 @@ $btnReset.Add_Click({
         if ($targets.Count -eq 0) { $targets += $userHome }
 
         Append-Log "Running opencode-unlimited clear across all sessions..."
-        Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" clear" -OnDone {
+        Invoke-UnlimitedCommand "clear" -OnDone {
             Append-Log "Resetting session IDs across $($targets.Count) workspace(s)..."
+            $ps1 = if ($script:unlimitedCmd -like "*.ps1") { $script:unlimitedCmd } else { [System.IO.Path]::ChangeExtension($script:unlimitedCmd, ".ps1") }
             foreach ($t in $targets) {
                 Append-Log "  -> Resetting workspace: $t"
-                & cmd.exe /c "`"$script:unlimitedCmd`" reset `"$t`""
+                if (Test-Path $ps1) {
+                    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$ps1" reset "$t" | ForEach-Object { Append-RawLog $_ }
+                } else {
+                    & cmd.exe /c "`"`"$script:unlimitedCmd`" reset `"$t`"`"" | ForEach-Object { Append-RawLog $_ }
+                }
             }
             Append-Log "✔ Clean reset finished! All chat history preserved."
             Set-Status "● Reset done! Launch OpenCode."
@@ -1058,9 +1034,9 @@ $btnReset.Add_Click({
         }
     } else {
         Append-Log "Running opencode-unlimited clear..."
-        Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" clear" -OnDone {
+        Invoke-UnlimitedCommand "clear" -OnDone {
             Append-Log "Running opencode-unlimited reset `"$proj`"..."
-            Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" reset `"$proj`"" -OnDone {
+            Invoke-UnlimitedCommand "reset `"$proj`"" -OnDone {
                 Append-Log "✔ Clean reset finished! All chat history preserved."
                 Set-Status "● Reset done! Launch OpenCode."
                 Check-StatusAsync
@@ -1075,7 +1051,7 @@ $btnClear.Add_Click({
     Append-Log "🧹 Clearing stored error banners..."
     Set-Status "● Stripping banners..."
 
-    Invoke-AsyncProcess -FilePath "cmd.exe" -Arguments "/c `"$script:unlimitedCmd`" clear" -OnDone {
+    Invoke-UnlimitedCommand "clear" -OnDone {
         Append-Log "✔ Banners stripped! Chat sessions untouched."
         Set-Status "● Banners stripped (Tabs safe)."
     }

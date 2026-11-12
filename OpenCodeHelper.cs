@@ -287,15 +287,23 @@ namespace OpenCodeManager
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
             string[] candidates = new string[]
             {
-                System.IO.Path.Combine(appDir, "OpenCode-Unlimited\\bin\\opencode-unlimited.cmd"),
-                System.IO.Path.Combine(appDir, "..\\OpenCode-Unlimited\\bin\\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(appDir, @"OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(appDir, @"OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(appDir, @"..\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(appDir, @"..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+                @"d:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.ps1",
                 @"d:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.cmd",
-                System.IO.Path.Combine(userHome, "Infosoft\\OpenCode-Unlimited\\bin\\opencode-unlimited.cmd"),
-                System.IO.Path.Combine(userHome, "OpenCode-Unlimited\\bin\\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(userHome, @"Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(userHome, @"Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(userHome, @"OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(userHome, @"OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(userHome, @"opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(userHome, @"opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+                "opencode-unlimited.ps1",
                 "opencode-unlimited.cmd"
             };
 
-            unlimitedCmd = "opencode-unlimited.cmd";
+            unlimitedCmd = null;
             foreach (var c in candidates)
             {
                 if (File.Exists(c))
@@ -303,6 +311,10 @@ namespace OpenCodeManager
                     unlimitedCmd = System.IO.Path.GetFullPath(c);
                     break;
                 }
+            }
+            if (string.IsNullOrEmpty(unlimitedCmd))
+            {
+                unlimitedCmd = "opencode-unlimited.cmd";
             }
         }
 
@@ -873,34 +885,10 @@ namespace OpenCodeManager
                     }
                     lastKnownIp = ip;
 
-                    // 1. Direct OpenCode Gateway Inference Probe
                     bool isRateLimited = false;
                     string quotaDetails = "Ready (Free Tier Available)";
 
-                    try
-                    {
-                        var probeContent = new StringContent(
-                            "{\"model\":\"deepseek-v4.1-flash-free\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
-                            System.Text.Encoding.UTF8,
-                            "application/json"
-                        );
-                        var probeResp = await http.PostAsync("https://opencode.ai/inference/openai/v1/chat/completions", probeContent);
-                        if ((int)probeResp.StatusCode == 429)
-                        {
-                            isRateLimited = true;
-                            quotaDetails = "Rate-Limited (HTTP 429 Free Limit Reached)";
-                        }
-                    }
-                    catch (Exception gex)
-                    {
-                        if (gex.Message.Contains("429"))
-                        {
-                            isRateLimited = true;
-                            quotaDetails = "Rate-Limited (HTTP 429 Free Limit Reached)";
-                        }
-                    }
-
-                    // 2. Check local spent ledger if probe did not flag 429
+                    // 1. Check local spent ledger
                     if (!isRateLimited)
                     {
                         string egressFile = System.IO.Path.Combine(userHome, ".config\\opencode\\unlimited-egress.json");
@@ -930,30 +918,36 @@ namespace OpenCodeManager
                         }
                     }
 
-                    // 3. Check OpenCode engine log for free limit refusal
-                    if (!isRateLimited)
+                    // 2. Check OpenCode SQLite database for active stored limit errors in last 5 minutes
+                    if (!isRateLimited && ip != "Offline")
                     {
-                        string ocLogPath = System.IO.Path.Combine(userHome, ".local\\share\\opencode\\log\\opencode.log");
-                        if (File.Exists(ocLogPath))
+                        string ocDbPath = System.IO.Path.Combine(userHome, ".local\\share\\opencode\\opencode.db");
+                        if (!File.Exists(ocDbPath))
+                        {
+                            ocDbPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"opencode\opencode.db");
+                        }
+                        if (File.Exists(ocDbPath))
                         {
                             try
                             {
-                                using (var fs = new FileStream(ocLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                                IntPtr db = IntPtr.Zero;
+                                byte[] dbBytes = System.Text.Encoding.UTF8.GetBytes(ocDbPath + "\0");
+                                if (sqlite3_open_v2(dbBytes, out db, 1 /* SQLITE_OPEN_READONLY */, IntPtr.Zero) == 0 && db != IntPtr.Zero)
                                 {
-                                    long seekPos = Math.Max(0, fs.Length - 131072);
-                                    fs.Seek(seekPos, SeekOrigin.Begin);
-                                    using (var reader = new StreamReader(fs))
+                                    long thresholdMs = (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 300) * 1000;
+                                    string sql = "SELECT 1 FROM session_message WHERE time_created > " + thresholdMs + " AND (cast(data as text) LIKE '%provider.free-limit%' OR cast(data as text) LIKE '%Free usage limit reached%') LIMIT 1;";
+                                    byte[] sqlBytes = System.Text.Encoding.UTF8.GetBytes(sql + "\0");
+                                    IntPtr stmt = IntPtr.Zero;
+                                    if (sqlite3_prepare_v2(db, sqlBytes, -1, out stmt, IntPtr.Zero) == 0 && stmt != IntPtr.Zero)
                                     {
-                                        string tail = reader.ReadToEnd();
-                                        int lastLimit = tail.LastIndexOf("Free usage limit reached", StringComparison.OrdinalIgnoreCase);
-                                        if (lastLimit == -1) lastLimit = tail.LastIndexOf("provider.free-limit", StringComparison.OrdinalIgnoreCase);
-                                        if (lastLimit != -1)
+                                        if (sqlite3_step(stmt) == 100) // SQLITE_ROW
                                         {
                                             isRateLimited = true;
-                                            quotaDetails = "Rate-Limited (Free limit exhausted on current IP)";
-                                            RecordSpentIp(ip, country);
+                                            quotaDetails = "Rate-Limited (Free limit exhausted on current session)";
                                         }
+                                        sqlite3_finalize(stmt);
                                     }
+                                    sqlite3_close_v2(db);
                                 }
                             }
                             catch { }
@@ -1048,6 +1042,25 @@ namespace OpenCodeManager
             catch { }
         }
 
+        private void RunUnlimitedCommand(string args)
+        {
+            if (!string.IsNullOrEmpty(unlimitedCmd) && File.Exists(unlimitedCmd))
+            {
+                string ps1 = unlimitedCmd.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase)
+                    ? unlimitedCmd
+                    : System.IO.Path.ChangeExtension(unlimitedCmd, ".ps1");
+
+                if (File.Exists(ps1))
+                {
+                    RunProcessStreaming("powershell.exe", string.Format("-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{0}\" {1}", ps1, args));
+                    return;
+                }
+            }
+
+            // Fallback: cmd.exe with outer quote safety
+            RunProcessStreaming("cmd.exe", string.Format("/c \"\"{0}\" {1}\"", unlimitedCmd, args));
+        }
+
         private async Task CleanResetAsync()
         {
             string proj = comboProj.Text;
@@ -1062,20 +1075,37 @@ namespace OpenCodeManager
             {
                 Log("Terminating OpenCode instances (safe)...");
                 int currentPid = Process.GetCurrentProcess().Id;
-                foreach (var p in Process.GetProcessesByName("opencode"))
+                foreach (var p in Process.GetProcesses())
                 {
-                    try { if (p.Id != currentPid) p.Kill(); } catch { }
-                }
-                foreach (var p in Process.GetProcessesByName("OpenCode"))
-                {
-                    try { if (p.Id != currentPid) p.Kill(); } catch { }
-                }
-                foreach (var p in Process.GetProcessesByName("opencode-cli"))
-                {
-                    try { if (p.Id != currentPid) p.Kill(); } catch { }
+                    try
+                    {
+                        if (p.Id != currentPid)
+                        {
+                            string pName = p.ProcessName.ToLowerInvariant();
+                            if (pName.Contains("opencode") && !pName.Contains("opencodehelper") && !pName.Contains("opencode-manager"))
+                            {
+                                p.Kill();
+                            }
+                        }
+                    }
+                    catch { }
                 }
 
-                System.Threading.Thread.Sleep(300);
+                try
+                {
+                    var psiKill = new ProcessStartInfo("taskkill.exe", "/F /T /IM \"OpenCode Desktop.exe\" /IM \"ai.opencode.desktop.exe\" /IM \"opencode.exe\" /IM \"opencode-cli.exe\"")
+                    {
+                        CreateNoWindow = true,
+                        UseShellExecute = false
+                    };
+                    using (var kp = Process.Start(psiKill))
+                    {
+                        kp.WaitForExit(3000);
+                    }
+                }
+                catch { }
+
+                System.Threading.Thread.Sleep(500);
 
                 bool isAll = (proj == "All Workspaces (All Sessions)" || proj.StartsWith("All Workspaces"));
                 if (isAll)
@@ -1086,22 +1116,22 @@ namespace OpenCodeManager
                     if (allDirs.Count == 0) allDirs.Add(userHome);
 
                     Log("Running opencode-unlimited clear across all sessions...");
-                    RunProcessStreaming("cmd.exe", string.Format("/c \"{0}\" clear", unlimitedCmd));
+                    RunUnlimitedCommand("clear");
 
                     Log(string.Format("Resetting session IDs across {0} workspace(s)...", allDirs.Count));
                     foreach (var dir in allDirs)
                     {
                         Log("  -> Resetting workspace: " + dir);
-                        RunProcessStreaming("cmd.exe", string.Format("/c \"{0}\" reset \"{1}\"", unlimitedCmd, dir));
+                        RunUnlimitedCommand(string.Format("reset \"{0}\"", dir));
                     }
                 }
                 else
                 {
                     Log("Running opencode-unlimited clear...");
-                    RunProcessStreaming("cmd.exe", string.Format("/c \"{0}\" clear", unlimitedCmd));
+                    RunUnlimitedCommand("clear");
 
                     Log(string.Format("Running opencode-unlimited reset \"{0}\"...", proj));
-                    RunProcessStreaming("cmd.exe", string.Format("/c \"{0}\" reset \"{1}\"", unlimitedCmd, proj));
+                    RunUnlimitedCommand(string.Format("reset \"{0}\"", proj));
                 }
 
                 Log("\u2714 Clean reset finished! All chat history preserved.");
@@ -1119,7 +1149,11 @@ namespace OpenCodeManager
 
             await Task.Run(() =>
             {
-                RunProcessStreaming("cmd.exe", string.Format("/c \"{0}\" clear", unlimitedCmd));
+                RunUnlimitedCommand("clear");
+                Log("\u2714 Banners stripped! Chat sessions untouched.");
+                SetStatus("\u25CF Banners stripped (Tabs safe).");
+            });
+        }
                 Log("\u2714 Banners stripped! Chat sessions untouched.");
                 SetStatus("\u25CF Banners stripped (Tabs safe).");
             });

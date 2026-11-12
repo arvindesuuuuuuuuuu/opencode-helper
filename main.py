@@ -5,7 +5,9 @@ A compact, minimalist utility to bypass limits, switch VPN, and clean sessions.
 """
 
 import os
+import time
 import json
+import queue
 import sqlite3
 import subprocess
 import threading
@@ -38,11 +40,25 @@ class CompactOpenCodeHelper:
         self.red = "#f38ba8"
 
         self.last_known_ip = None
+        self.dispatch_queue = queue.Queue()
 
         self.root.configure(bg=self.bg)
         self.setup_ui()
+        self.root.after(50, self.poll_dispatch_queue)
         self.refresh_status_async()
         self.root.after(4000, self.vpn_watcher)
+
+    def poll_dispatch_queue(self):
+        while not self.dispatch_queue.empty():
+            try:
+                fn, args = self.dispatch_queue.get_nowait()
+                fn(*args)
+            except Exception:
+                break
+        self.root.after(50, self.poll_dispatch_queue)
+
+    def ui_dispatch(self, fn, *args):
+        self.dispatch_queue.put((fn, args))
 
     def vpn_watcher(self):
         self.refresh_status_async(silent=True)
@@ -131,7 +147,7 @@ class CompactOpenCodeHelper:
         self.lbl_status.pack(side="bottom", fill="x", pady=(0, 6))
 
     def set_msg(self, msg, color=None):
-        self.root.after(0, lambda: self.lbl_status.config(text=msg, fg=color or self.subtext))
+        self.ui_dispatch(lambda: self.lbl_status.config(text=msg, fg=color or self.subtext))
 
     def load_projects(self):
         active_project = None
@@ -271,7 +287,7 @@ class CompactOpenCodeHelper:
 
             self.last_known_ip = cur_ip
 
-            # 2. Check local spent ledger
+            # 1. Check local spent ledger
             if cur_ip and os.path.exists(EGRESS_FILE):
                 try:
                     with open(EGRESS_FILE, "r", encoding="utf-8") as f:
@@ -287,17 +303,18 @@ class CompactOpenCodeHelper:
                 except Exception:
                     pass
 
-            # 3. Check OpenCode engine log
-            if not is_rate_limited and cur_ip and os.path.exists(OC_LOG_PATH):
+            # 2. Check OpenCode SQLite database for active stored limit errors in last 5 minutes
+            if not is_rate_limited and cur_ip and os.path.exists(DB_PATH):
                 try:
-                    with open(OC_LOG_PATH, "r", encoding="utf-8", errors="ignore") as f:
-                        f.seek(max(0, os.path.getsize(OC_LOG_PATH) - 131072))
-                        tail = f.read()
-                        if "Free usage limit reached" in tail or "provider.free-limit" in tail:
-                            is_rate_limited = True
-                            quota_text = "❌ Rate-Limited (Limit Reached)"
-                            quota_color = self.red
-                            self.record_spent_ip(cur_ip, country)
+                    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+                    c = conn.cursor()
+                    threshold = (time.time() - 300) * 1000 # last 5 minutes
+                    c.execute("SELECT 1 FROM session_message WHERE time_created > ? AND (cast(data as text) LIKE '%provider.free-limit%' OR cast(data as text) LIKE '%Free usage limit reached%') LIMIT 1;", (threshold,))
+                    if c.fetchone():
+                        is_rate_limited = True
+                        quota_text = "❌ Rate-Limited (Limit Reached)"
+                        quota_color = self.red
+                    conn.close()
                 except Exception:
                     pass
 
@@ -314,7 +331,7 @@ class CompactOpenCodeHelper:
                     self.set_msg("● Awaiting VPN connection...", self.red)
                 elif not silent:
                     self.set_msg("Ready.", self.green)
-            self.root.after(0, _up)
+            self.ui_dispatch(_up)
 
         threading.Thread(target=worker, daemon=True).start()
 

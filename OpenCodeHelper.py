@@ -18,12 +18,19 @@ from tkinter import ttk, filedialog
 USER_HOME = os.path.expanduser("~")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Candidate paths for opencode-unlimited.cmd
+# Candidate paths for opencode-unlimited.cmd / .ps1
 UNLIMITED_CMD_CANDIDATES = [
-    os.path.join(SCRIPT_DIR, "..", "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
+    os.path.join(SCRIPT_DIR, "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
     os.path.join(SCRIPT_DIR, "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
+    os.path.join(SCRIPT_DIR, "..", "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
+    os.path.join(SCRIPT_DIR, "..", "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
+    os.path.join(USER_HOME, "Infosoft", "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
     os.path.join(USER_HOME, "Infosoft", "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
+    os.path.join(USER_HOME, "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
     os.path.join(USER_HOME, "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
+    r"D:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.ps1",
+    r"D:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.cmd",
+    "opencode-unlimited.ps1",
     "opencode-unlimited.cmd"
 ]
 
@@ -32,6 +39,70 @@ for c in UNLIMITED_CMD_CANDIDATES:
     if os.path.exists(c):
         UNLIMITED_CMD = os.path.abspath(c)
         break
+
+def detect_opencode_projects():
+    """Detect recent workspaces from drafts.sqlite."""
+    if os.name == 'nt':
+        db_path = os.path.expandvars(r'%APPDATA%\ai.opencode.desktop\drafts.sqlite')
+    else:
+        db_path = os.path.expanduser('~/.config/ai.opencode.desktop/drafts.sqlite')
+    
+    active_dir = None
+    all_dirs = []
+    if not os.path.exists(db_path):
+        return None, all_dirs
+    
+    try:
+        import sqlite3
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM state WHERE name LIKE 'opencode.window%.dat' AND key IN ('tabs.recent', 'tabs.info', 'tabs.closed') ORDER BY updated_at DESC;")
+        
+        active_key = None
+        tabs_info_json = None
+        tabs_closed_json = None
+        
+        for key, val in cursor.fetchall():
+            if key == 'tabs.recent' and active_key is None:
+                try:
+                    obj = json.loads(val)
+                    active_key = obj.get('key')
+                except Exception:
+                    pass
+            elif key == 'tabs.info' and tabs_info_json is None:
+                tabs_info_json = val
+            elif key == 'tabs.closed' and tabs_closed_json is None:
+                tabs_closed_json = val
+                
+        conn.close()
+        
+        if tabs_info_json:
+            try:
+                info = json.loads(tabs_info_json)
+                if active_key and active_key in info:
+                    act_dir = info[active_key].get('directory')
+                    if act_dir and os.path.isdir(act_dir):
+                        active_dir = act_dir
+                for tab_key, tab_data in info.items():
+                    d = tab_data.get('directory')
+                    if d and os.path.isdir(d) and d not in all_dirs:
+                        all_dirs.append(d)
+            except Exception:
+                pass
+                
+        if tabs_closed_json:
+            try:
+                closed = json.loads(tabs_closed_json)
+                for tab_data in closed:
+                    d = tab_data.get('directory')
+                    if d and os.path.isdir(d) and d not in all_dirs:
+                        all_dirs.append(d)
+            except Exception:
+                pass
+    except Exception:
+        pass
+        
+    return active_dir, all_dirs
 
 EGRESS_FILE = os.path.join(USER_HOME, ".config", "opencode", "unlimited-egress.json")
 OC_LOG_PATH = os.path.join(USER_HOME, ".local", "share", "opencode", "log", "opencode.log")
@@ -142,10 +213,18 @@ class OpenCodeHelperWin:
         proj_row.pack(fill="x", pady=2)
         tk.Label(proj_row, text="Project:", font=("Segoe UI", 9, "bold"), fg=self.subtext, bg=self.bg, width=8, anchor="w").pack(side="left")
 
-        self.proj_var = tk.StringVar(value=USER_HOME)
-        proj_paths = [USER_HOME]
-        dev_dir = os.path.join(USER_HOME, "Projects")
-        if os.path.exists(dev_dir): proj_paths.append(dev_dir)
+        active_dir, detected_dirs = detect_opencode_projects()
+        proj_paths = ["All Workspaces (All Sessions)"]
+        if active_dir:
+            proj_paths.append(active_dir)
+        for d in detected_dirs:
+            if d not in proj_paths:
+                proj_paths.append(d)
+        if USER_HOME not in proj_paths:
+            proj_paths.append(USER_HOME)
+
+        initial_val = active_dir or "All Workspaces (All Sessions)"
+        self.proj_var = tk.StringVar(value=initial_val)
 
         self.proj_combo = ttk.Combobox(proj_row, values=proj_paths, textvariable=self.proj_var, font=("Segoe UI", 9))
         self.proj_combo.pack(side="left", fill="x", expand=True, padx=(0, 6))
@@ -270,17 +349,22 @@ class OpenCodeHelperWin:
                         except Exception:
                             pass
 
-                    # 2. Check OpenCode engine log
-                    if not is_spent and ip != "Offline" and os.path.exists(OC_LOG_PATH):
-                        try:
-                            with open(OC_LOG_PATH, "r", encoding="utf-8", errors="ignore") as f:
-                                f.seek(max(0, os.path.getsize(OC_LOG_PATH) - 131072))
-                                tail = f.read()
-                                if "Free usage limit reached" in tail or "provider.free-limit" in tail:
+                    # 2. Check OpenCode SQLite database for active stored limit errors in last 5 minutes
+                    if not is_spent and ip != "Offline":
+                        db_path = os.path.join(USER_HOME, ".local", "share", "opencode", "opencode.db")
+                        if not os.path.exists(db_path) and os.name == 'nt':
+                            db_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "opencode", "opencode.db")
+                        if os.path.exists(db_path):
+                            try:
+                                conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                                c = conn.cursor()
+                                threshold = (time.time() - 300) * 1000
+                                c.execute("SELECT 1 FROM session_message WHERE time_created > ? AND (cast(data as text) LIKE '%provider.free-limit%' OR cast(data as text) LIKE '%Free usage limit reached%') LIMIT 1;", (threshold,))
+                                if c.fetchone():
                                     is_spent = True
-                                    self.record_spent_ip(ip, country)
-                        except Exception:
-                            pass
+                                conn.close()
+                            except Exception:
+                                pass
 
                     def _ui():
                         self.lbl_ip.config(text=ip_text)
@@ -315,9 +399,16 @@ class OpenCodeHelperWin:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def run_command_streaming(self, cmd):
+    def run_command_streaming(self, cmd_args):
         try:
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            if UNLIMITED_CMD.endswith(".ps1") and os.path.exists(UNLIMITED_CMD):
+                full_cmd = f'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "{UNLIMITED_CMD}" {cmd_args}'
+            elif os.name == 'nt':
+                full_cmd = f'cmd.exe /c ""{UNLIMITED_CMD}" {cmd_args}""'
+            else:
+                full_cmd = f'"{UNLIMITED_CMD}" {cmd_args}'
+
+            p = subprocess.Popen(full_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             for line in iter(p.stdout.readline, ''):
                 line = line.strip()
                 if line:
@@ -339,16 +430,29 @@ class OpenCodeHelperWin:
         def _worker():
             self.log("Terminating OpenCode instances (safe)...")
             if os.name == 'nt':
-                # Safe taskkill: only kill opencode processes, never kills Python helper
-                subprocess.run("taskkill /f /im opencode.exe 2>nul", shell=True)
-                subprocess.run("taskkill /f /im opencode-cli.exe 2>nul", shell=True)
-            time.sleep(0.3)
+                # Safe taskkill: kill all OpenCode processes including Electron Desktop
+                subprocess.run('taskkill /f /t /im "OpenCode Desktop.exe" /im "ai.opencode.desktop.exe" /im opencode.exe /im opencode-cli.exe 2>nul', shell=True)
+            else:
+                subprocess.run("pkill -9 -f opencode 2>/dev/null", shell=True)
+            time.sleep(0.5)
 
-            self.log("Running opencode-unlimited clear...")
-            self.run_command_streaming(f'"{UNLIMITED_CMD}" clear')
+            is_all = (proj == "All Workspaces (All Sessions)" or proj.startswith("All Workspaces"))
+            if is_all:
+                all_dirs = [x for x in self.proj_combo["values"] if x and not x.startswith("All Workspaces") and os.path.exists(x)]
+                if not all_dirs:
+                    all_dirs = [USER_HOME]
+                self.log("Running opencode-unlimited clear across all sessions...")
+                self.run_command_streaming("clear")
+                self.log(f"Resetting session IDs across {len(all_dirs)} workspace(s)...")
+                for d in all_dirs:
+                    self.log(f"  -> Resetting workspace: {d}")
+                    self.run_command_streaming(f'reset "{d}"')
+            else:
+                self.log("Running opencode-unlimited clear...")
+                self.run_command_streaming("clear")
 
-            self.log(f'Running opencode-unlimited reset "{proj}"...')
-            self.run_command_streaming(f'"{UNLIMITED_CMD}" reset "{proj}"')
+                self.log(f'Running opencode-unlimited reset "{proj}"...')
+                self.run_command_streaming(f'reset "{proj}"')
 
             self.log("✔ Clean reset finished! All chat history preserved.")
             self.set_status("● Reset done! Launch OpenCode.")
@@ -362,7 +466,7 @@ class OpenCodeHelperWin:
         self.set_status("● Stripping banners...")
 
         def _worker():
-            self.run_command_streaming(f'"{UNLIMITED_CMD}" clear')
+            self.run_command_streaming("clear")
             self.log("✔ Banners stripped! Chat sessions untouched.")
             self.set_status("● Banners stripped (Tabs safe).")
 
@@ -374,10 +478,14 @@ class OpenCodeHelperWin:
         self.set_status("● Launching OpenCode...")
 
         candidates = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ai.opencode.desktop", "OpenCode.exe"),
             os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "opencode", "opencode.exe"),
             os.path.join(os.environ.get("ProgramFiles", ""), "opencode", "opencode.exe"),
             os.path.join(os.environ.get("ProgramFiles(x86)", ""), "opencode", "opencode.exe"),
-            os.path.join(USER_HOME, ".opencode", "bin", "opencode.exe")
+            os.path.join(USER_HOME, ".opencode", "bin", "opencode.exe"),
+            "opencode.cmd",
+            "opencode.exe",
+            "opencode"
         ]
         exe = ""
         for c in candidates:
