@@ -393,30 +393,49 @@ $xaml = @"
             <!-- 2. CONTENT AREA -->
             <StackPanel Grid.Row="1" Margin="14,10,14,8">
                 <!-- HERO STATUS CARD -->
-                <Border CornerRadius="5" Background="#121522" BorderBrush="#1d2338" BorderThickness="1" Height="36" Padding="11,0,10,0" Margin="0,0,0,6">
-                    <Grid VerticalAlignment="Center">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Path Width="12" Height="12" Stretch="Uniform" Fill="#64748b" Margin="0,0,7,0" VerticalAlignment="Center"
-                                  Data="M 12 2 A 10 10 0 1 0 12 22 A 10 10 0 1 0 12 2 Z M 3.93 13 A 8.04 8.04 0 0 1 4 11 H 7.92 C 7.97 11.68 8.07 12.35 8.22 13 H 3.93 Z M 8.22 11 H 4 C 4.09 9.97 4.41 9 4.93 8.16 L 8.35 9.53 C 8.26 10.01 8.22 10.5 8.22 11 Z M 12 4.07 C 12.8 5.16 13.43 6.51 13.82 8 H 10.18 C 10.57 6.51 11.2 5.16 12 4.07 Z M 10.11 11 C 10.11 10.33 10.17 9.66 10.28 9 H 13.72 C 13.83 9.66 13.89 10.33 13.89 11 C 13.89 11.67 13.83 12.34 13.72 13 H 10.28 C 10.17 12.34 10.11 11.67 10.11 11 Z M 12 19.93 C 11.2 18.84 10.57 17.49 10.18 16 H 13.82 C 13.43 17.49 12.8 18.84 12 19.93 Z" />
-                            <TextBlock Name="lblIp" Text="Probing network status..." FontFamily="Consolas, Segoe UI" FontSize="9.5" Foreground="#94a3b8" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        </StackPanel>
-
-                        <!-- Modern Glowing Status Chip -->
-                        <Border Name="badgeQuota" Grid.Column="1" CornerRadius="11" Height="22" Background="#0d1f33" BorderBrush="#0284c7" BorderThickness="1" Padding="9,0,11,0" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Grid Width="10" Height="10" Margin="0,0,6,0" VerticalAlignment="Center">
-                                    <Ellipse Name="dotQuotaHalo" Width="10" Height="10" Fill="#7dd3fc" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <Ellipse Name="dotQuotaInner" Width="6" Height="6" Fill="#38bdf8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Grid>
-                                <TextBlock Name="lblQuota" Text="Checking" FontSize="9.0" FontWeight="SemiBold" Foreground="#93c5fd" VerticalAlignment="Center"/>
+                <Border CornerRadius="5" Background="#121522" BorderBrush="#1d2338" BorderThickness="1" Padding="11,6,10,6" Margin="0,0,0,6">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Path Width="12" Height="12" Stretch="Uniform" Fill="#64748b" Margin="0,0,7,0" VerticalAlignment="Center"
+                                      Data="M 12 2 A 10 10 0 1 0 12 22 A 10 10 0 1 0 12 2 Z M 3.93 13 A 8.04 8.04 0 0 1 4 11 H 7.92 C 7.97 11.68 8.07 12.35 8.22 13 H 3.93 Z M 8.22 11 H 4 C 4.09 9.97 4.41 9 4.93 8.16 L 8.35 9.53 C 8.26 10.01 8.22 10.5 8.22 11 Z M 12 4.07 C 12.8 5.16 13.43 6.51 13.82 8 H 10.18 C 10.57 6.51 11.2 5.16 12 4.07 Z M 10.11 11 C 10.11 10.33 10.17 9.66 10.28 9 H 13.72 C 13.83 9.66 13.89 10.33 13.89 11 C 13.89 11.67 13.83 12.34 13.72 13 H 10.28 C 10.17 12.34 10.11 11.67 10.11 11 Z M 12 19.93 C 11.2 18.84 10.57 17.49 10.18 16 H 13.82 C 13.43 17.49 12.8 18.84 12 19.93 Z" />
+                                <TextBlock Name="lblIp" Text="Probing network status..." FontFamily="Consolas, Segoe UI" FontSize="9.5" Foreground="#94a3b8" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                             </StackPanel>
-                        </Border>
-                    </Grid>
+
+                            <!-- Modern Glowing Status Chip -->
+                            <Border Name="badgeQuota" Grid.Column="1" CornerRadius="11" Height="20" Background="#0d1f33" BorderBrush="#0284c7" BorderThickness="1" Padding="8,0,10,0" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Grid Width="8" Height="8" Margin="0,0,5,0" VerticalAlignment="Center">
+                                        <Ellipse Name="dotQuotaHalo" Width="8" Height="8" Fill="#7dd3fc" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Name="dotQuotaInner" Width="5" Height="5" Fill="#38bdf8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Grid>
+                                    <TextBlock Name="lblQuota" Text="Checking" FontSize="8.5" FontWeight="SemiBold" Foreground="#93c5fd" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Clean Reset Status:" FontSize="8.5" Foreground="#64748b" VerticalAlignment="Center"/>
+                            <Border Name="badgeReset" Grid.Column="1" CornerRadius="10" Height="20" Background="#062e24" BorderBrush="#059669" BorderThickness="1" Padding="8,0,10,0" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Grid Width="8" Height="8" Margin="0,0,5,0" VerticalAlignment="Center">
+                                        <Ellipse Name="dotResetHalo" Width="8" Height="8" Fill="#34d399" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Ellipse Name="dotResetInner" Width="5" Height="5" Fill="#10b981" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Grid>
+                                    <TextBlock Name="lblResetStatus" Text="Applied (Current Network)" FontSize="8.5" FontWeight="SemiBold" Foreground="#34d399" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
                 </Border>
 
                 <!-- QUICK INSTRUCTIONS COLLAPSIBLE DRAWER -->
@@ -534,6 +553,10 @@ $lblQuota      = $window.FindName("lblQuota")
 $badgeQuota    = $window.FindName("badgeQuota")
 $dotQuotaHalo  = $window.FindName("dotQuotaHalo")
 $dotQuotaInner = $window.FindName("dotQuotaInner")
+$badgeReset    = $window.FindName("badgeReset")
+$dotResetHalo  = $window.FindName("dotResetHalo")
+$dotResetInner = $window.FindName("dotResetInner")
+$lblResetStatus= $window.FindName("lblResetStatus")
 $guideHeader   = $window.FindName("guideHeader")
 $guideBody     = $window.FindName("guideBody")
 $lblGuideToggle= $window.FindName("lblGuideToggle")
@@ -552,11 +575,11 @@ if ($guideHeader) {
         if ($guideBody.Visibility -eq [System.Windows.Visibility]::Visible) {
             $guideBody.Visibility = [System.Windows.Visibility]::Collapsed
             $lblGuideToggle.Text = "▾ Details"
-            $window.Height = 405
+            $window.Height = 425
         } else {
             $guideBody.Visibility = [System.Windows.Visibility]::Visible
             $lblGuideToggle.Text = "▴ Hide"
-            $window.Height = 470
+            $window.Height = 490
         }
     })
 }
@@ -573,6 +596,92 @@ function Get-Subnet24([string]$ip) {
         return "$($parts[0]).$($parts[1]).$($parts[2])"
     }
     return $ip
+}
+
+function Test-IsResetApplied([string]$ip) {
+    if (-not $ip -or $ip -eq "Offline") { return $false }
+    $curSub = Get-Subnet24 $ip
+
+    # 1. Check unlimited-reset-network.json
+    $resetFile = Join-Path $userHome ".config\opencode\unlimited-reset-network.json"
+    if (Test-Path $resetFile) {
+        try {
+            $raw = [System.IO.File]::ReadAllText($resetFile)
+            $jser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+            $data = $jser.DeserializeObject($raw)
+            if ($data["ip"] -eq $ip -or $data["subnet"] -eq $curSub) {
+                return $true
+            }
+        } catch {}
+    }
+
+    # 2. Check unlimited-ip.json
+    $ipCacheFile = Join-Path $userHome ".config\opencode\unlimited-ip.json"
+    if (Test-Path $ipCacheFile) {
+        try {
+            $raw = [System.IO.File]::ReadAllText($ipCacheFile)
+            $jser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+            $data = $jser.DeserializeObject($raw)
+            $cachedIp = $data["ip"]
+            if ($cachedIp -eq $ip -or (Get-Subnet24 $cachedIp) -eq $curSub) {
+                return $true
+            }
+        } catch {}
+    }
+
+    return $false
+}
+
+function Set-ResetNetwork([string]$ip, [string]$location) {
+    if (-not $ip -or $ip -eq "Offline") { return }
+    try {
+        $dir = Join-Path $userHome ".config\opencode"
+        if (-not (Test-Path $dir)) { [System.IO.Directory]::CreateDirectory($dir) | Out-Null }
+        $resetFile = Join-Path $dir "unlimited-reset-network.json"
+        $obj = @{
+            ip = $ip
+            subnet = Get-Subnet24 $ip
+            location = $location
+            timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        }
+        $jser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+        [System.IO.File]::WriteAllText($resetFile, $jser.Serialize($obj))
+    } catch {}
+}
+
+function Update-ResetBadge([string]$state, [string]$text) {
+    if ($lblResetStatus) { $lblResetStatus.Text = $text }
+    if (-not $badgeReset) { return }
+    switch ($state) {
+        "applied" {
+            $badgeReset.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#062e24")
+            $badgeReset.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#059669")
+            $dotResetHalo.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#34d399")
+            $dotResetInner.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#10b981")
+            $lblResetStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#34d399")
+        }
+        "pending" {
+            $badgeReset.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#291c06")
+            $badgeReset.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#d97706")
+            $dotResetHalo.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fde68a")
+            $dotResetInner.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#f59e0b")
+            $lblResetStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fbbf24")
+        }
+        "required" {
+            $badgeReset.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#2d1015")
+            $badgeReset.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#e11d48")
+            $dotResetHalo.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fda4af")
+            $dotResetInner.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#f43f5e")
+            $lblResetStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fb7185")
+        }
+        default {
+            $badgeReset.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#131728")
+            $badgeReset.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#334155")
+            $dotResetHalo.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#94a3b8")
+            $dotResetInner.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#64748b")
+            $lblResetStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#94a3b8")
+        }
+    }
 }
 
 # Windows Built-in SQLite Detector (winsqlite3.dll)
@@ -936,23 +1045,37 @@ function Check-StatusAsync([bool]$Silent = $false) {
 
             $quotaChanged = ($script:lastWasRateLimited -ne $null -and $isRateLimited -ne $script:lastWasRateLimited)
 
+            $isResetApplied = Test-IsResetApplied $ip
+
             $window.Dispatcher.Invoke([Action]{
                 $lblIp.Text = $ipText
                 if ($isRateLimited) {
                     Update-QuotaBadge "limited" "Free Limit Reached"
+                    Update-ResetBadge "required" "Required (Limit Reached)"
                     Set-Status "● Awaiting VPN connection..."
+                } elseif ($isResetApplied) {
+                    Update-QuotaBadge "ready" "Ready"
+                    Update-ResetBadge "applied" "Applied (Current Network)"
+                    Set-Status "● Ready (Free Tier Available)"
                 } else {
                     Update-QuotaBadge "ready" "Ready"
-                    Set-Status "● Ready (Free Tier Available)"
+                    Update-ResetBadge "pending" "Not Applied (Pending)"
+                    Set-Status "● Ready (Reset Pending)"
                 }
 
                 if ($script:isFirstCheck -or -not $Silent) {
                     Append-Log "Network: $ipText"
                     if ($isRateLimited) {
                         Append-Log "✖ Quota: $quotaDetails"
+                        Append-Log "✖ Clean Reset: Required (Free limit reached on session)"
                         Append-Log "Awaiting VPN connection to acquire a fresh IP..."
                     } else {
                         Append-Log "✔ Quota: $quotaDetails"
+                        if ($isResetApplied) {
+                            Append-Log "✔ Clean Reset: Already applied for this network"
+                        } else {
+                            Append-Log "ℹ Clean Reset: Not applied yet for this network (Click '1-Click Clean Reset')"
+                        }
                     }
                 } elseif ($networkChanged) {
                     Append-Log "🔄 Connection change detected: $ipText"
@@ -961,6 +1084,11 @@ function Check-StatusAsync([bool]$Silent = $false) {
                         Append-Log "Awaiting VPN connection to acquire a fresh IP..."
                     } else {
                         Append-Log "✔ Quota: $quotaDetails"
+                        if ($isResetApplied) {
+                            Append-Log "✔ Clean Reset: Already applied for this network"
+                        } else {
+                            Append-Log "ℹ Clean Reset: Not applied yet for this network (Click '1-Click Clean Reset')"
+                        }
                     }
                 } elseif ($quotaChanged) {
                     if ($isRateLimited) {
@@ -968,6 +1096,11 @@ function Check-StatusAsync([bool]$Silent = $false) {
                         Append-Log "Awaiting VPN connection to acquire a fresh IP..."
                     } else {
                         Append-Log "✔ Quota: $quotaDetails"
+                        if ($isResetApplied) {
+                            Append-Log "✔ Clean Reset: Already applied for this network"
+                        } else {
+                            Append-Log "ℹ Clean Reset: Not applied yet for this network (Click '1-Click Clean Reset')"
+                        }
                     }
                 }
             })
@@ -1097,7 +1230,8 @@ $btnReset.Add_Click({
                     & cmd.exe /c "`"`"$script:unlimitedCmd`" reset `"$t`"`"" | ForEach-Object { Append-RawLog $_ }
                 }
             }
-            Append-Log "✔ Clean reset finished! All chat history preserved."
+            Set-ResetNetwork $script:lastKnownIp $script:lastKnownLocation
+            Append-Log "✔ Clean reset finished! Current network marked clean."
             Set-Status "● Reset done! Launch OpenCode."
             Check-StatusAsync
         }
@@ -1106,7 +1240,8 @@ $btnReset.Add_Click({
         Invoke-UnlimitedCommand "clear" -OnDone {
             Append-Log "Running opencode-unlimited reset `"$proj`"..."
             Invoke-UnlimitedCommand "reset `"$proj`"" -OnDone {
-                Append-Log "✔ Clean reset finished! All chat history preserved."
+                Set-ResetNetwork $script:lastKnownIp $script:lastKnownLocation
+                Append-Log "✔ Clean reset finished! Current network marked clean."
                 Set-Status "● Reset done! Launch OpenCode."
                 Check-StatusAsync
             }

@@ -22,11 +22,14 @@ const std::string EGRESS_FILE = HOME + "/.config/opencode/unlimited-egress.json"
 const std::string OC_LOG_PATH = HOME + "/.local/share/opencode/log/opencode.log";
 const std::string DESKTOP_DB = HOME + "/.config/ai.opencode.desktop/drafts.sqlite";
 const std::string DB_PATH = HOME + "/.local/share/opencode/opencode.db";
+const std::string RESET_NETWORK_FILE = HOME + "/.config/opencode/unlimited-reset-network.json";
+const std::string IP_CACHE_FILE = HOME + "/.config/opencode/unlimited-ip.json";
 
 struct AppWidgets {
     GtkWidget *window;
     GtkWidget *lbl_ip;
     GtkWidget *lbl_quota;
+    GtkWidget *lbl_reset_state;
     GtkWidget *combo_proj;
     GtkWidget *btn_auto;
     GtkWidget *btn_reset;
@@ -54,6 +57,77 @@ static std::string get_subnet24(const std::string &ip) {
     size_t p3 = ip.find('.', p2 + 1);
     if (p3 == std::string::npos) return ip;
     return ip.substr(0, p3);
+}
+
+static void record_reset_network(const std::string &ip, const std::string &location) {
+    if (ip.empty() || ip == "Offline") return;
+    std::string sub = get_subnet24(ip);
+    time_t now = time(nullptr);
+
+    std::string dir = HOME + "/.config/opencode";
+    mkdir(dir.c_str(), 0755);
+
+    std::ofstream out(RESET_NETWORK_FILE);
+    if (out.is_open()) {
+        out << "{\n";
+        out << "  \"ip\": \"" << ip << "\",\n";
+        out << "  \"subnet\": \"" << sub << "\",\n";
+        out << "  \"location\": \"" << location << "\",\n";
+        out << "  \"timestamp\": " << now << "\n";
+        out << "}\n";
+        out.close();
+    }
+}
+
+static bool is_reset_applied_for_network(const std::string &ip, std::string &out_details) {
+    if (ip.empty() || ip == "Offline") {
+        out_details = "Offline";
+        return false;
+    }
+    std::string cur_sub = get_subnet24(ip);
+
+    // 1. Try reading RESET_NETWORK_FILE
+    std::ifstream in(RESET_NETWORK_FILE);
+    if (in.is_open()) {
+        std::stringstream ss;
+        ss << in.rdbuf();
+        std::string content = ss.str();
+        in.close();
+
+        if (content.find("\"ip\": \"" + ip + "\"") != std::string::npos ||
+            content.find("\"ip\":\"" + ip + "\"") != std::string::npos ||
+            content.find("\"subnet\": \"" + cur_sub + "\"") != std::string::npos ||
+            content.find("\"subnet\":\"" + cur_sub + "\"") != std::string::npos) {
+            out_details = "Applied on current network";
+            return true;
+        }
+    }
+
+    // 2. Fallback to IP_CACHE_FILE from opencode-unlimited
+    std::ifstream ip_in(IP_CACHE_FILE);
+    if (ip_in.is_open()) {
+        std::stringstream ss;
+        ss << ip_in.rdbuf();
+        std::string content = ss.str();
+        ip_in.close();
+
+        size_t pos = content.find("\"ip\":\"");
+        if (pos == std::string::npos) pos = content.find("\"ip\": \"");
+        if (pos != std::string::npos) {
+            size_t start = content.find('"', pos + 5) + 1;
+            size_t end = content.find('"', start);
+            if (end != std::string::npos) {
+                std::string cached_ip = content.substr(start, end - start);
+                if (cached_ip == ip || get_subnet24(cached_ip) == cur_sub) {
+                    out_details = "Applied on current network";
+                    return true;
+                }
+            }
+        }
+    }
+
+    out_details = "Not applied on this network";
+    return false;
 }
 
 static std::string get_timestamp() {
@@ -277,6 +351,9 @@ struct StatusData {
     std::string country;
     std::string ip_info;
     std::string quota_text;
+    std::string reset_text;
+    std::string reset_class;
+    bool is_reset_applied;
     bool is_ready;
     bool is_rate_limited;
     bool ip_changed;
@@ -288,6 +365,14 @@ static gboolean on_status_checked(gpointer user_data) {
 
     gtk_label_set_text(GTK_LABEL(app.lbl_ip), data->ip_info.c_str());
     gtk_label_set_text(GTK_LABEL(app.lbl_quota), data->quota_text.c_str());
+    if (app.lbl_reset_state) {
+        gtk_label_set_text(GTK_LABEL(app.lbl_reset_state), data->reset_text.c_str());
+        GtkStyleContext *rctx = gtk_widget_get_style_context(app.lbl_reset_state);
+        gtk_style_context_remove_class(rctx, "reset-applied");
+        gtk_style_context_remove_class(rctx, "reset-pending");
+        gtk_style_context_remove_class(rctx, "reset-required");
+        gtk_style_context_add_class(rctx, data->reset_class.c_str());
+    }
 
     GtkStyleContext *ctx = gtk_widget_get_style_context(app.lbl_quota);
     gtk_style_context_remove_class(ctx, "quota-ready");
@@ -314,11 +399,25 @@ static gboolean on_status_checked(gpointer user_data) {
         set_status(data->is_ready ? "● Ready" : (data->ip == "Offline" ? "● Offline" : "● Awaiting VPN connection..."));
         log_line("Network: " + data->ip_info);
         log_line("Quota status: " + data->quota_text);
+        if (data->is_rate_limited) {
+            log_line("✖ Clean Reset: Required (Free limit reached on session)");
+        } else if (data->is_reset_applied) {
+            log_line("✔ Clean Reset: Already applied for this network");
+        } else {
+            log_line("ℹ Clean Reset: Not applied yet for this network (Click '1-Click Clean Reset')");
+        }
     } else if (!data->silent) {
         // Manual check button clicked
         set_status(data->is_ready ? "● Ready" : (data->ip == "Offline" ? "● Offline" : "● Awaiting VPN connection..."));
         log_line("Network: " + data->ip_info);
         log_line("Quota status: " + data->quota_text);
+        if (data->is_rate_limited) {
+            log_line("✖ Clean Reset: Required (Free limit reached on session)");
+        } else if (data->is_reset_applied) {
+            log_line("✔ Clean Reset: Already applied for this network");
+        } else {
+            log_line("ℹ Clean Reset: Not applied yet for this network (Click '1-Click Clean Reset')");
+        }
     } else if (network_changed) {
         // Significant network / server change detected
         log_line("🔄 Connection change detected: " + data->ip_info);
@@ -329,6 +428,11 @@ static gboolean on_status_checked(gpointer user_data) {
         } else {
             set_status("● Ready");
             log_line("✔ Quota: Ready (Free Tier Available)");
+            if (data->is_reset_applied) {
+                log_line("✔ Clean Reset: Already applied for this network");
+            } else {
+                log_line("ℹ Clean Reset: Not applied yet for this network (Click '1-Click Clean Reset')");
+            }
         }
     } else if (quota_changed) {
         // Quota status changed on existing connection
@@ -339,6 +443,11 @@ static gboolean on_status_checked(gpointer user_data) {
         } else {
             set_status("● Ready");
             log_line("✔ Quota: Ready (Free Tier Available)");
+            if (data->is_reset_applied) {
+                log_line("✔ Clean Reset: Already applied for this network");
+            } else {
+                log_line("ℹ Clean Reset: Not applied yet for this network (Click '1-Click Clean Reset')");
+            }
         }
     }
 
@@ -358,6 +467,7 @@ void check_status_worker(bool silent) {
     data->silent = silent;
     data->is_ready = false;
     data->is_rate_limited = false;
+    data->is_reset_applied = false;
 
     // 1. Fetch IP & Geo
     std::string ip_raw = exec_cmd("curl -s --max-time 4 https://ipinfo.io/json");
@@ -448,14 +558,28 @@ void check_status_worker(bool silent) {
         }
     }
 
+    std::string reset_details;
+    data->is_reset_applied = is_reset_applied_for_network(ip, reset_details);
+
     if (ip == "Offline") {
         data->quota_text = "● Connection Error";
         data->is_ready = false;
-    } else if (!data->is_rate_limited) {
+        data->reset_text = "● Offline";
+        data->reset_class = "reset-pending";
+    } else if (data->is_rate_limited) {
+        data->is_ready = false;
+        data->reset_text = "● Required (Free Limit Reached)";
+        data->reset_class = "reset-required";
+    } else if (data->is_reset_applied) {
         data->quota_text = "● Ready (Free Tier Available)";
         data->is_ready = true;
+        data->reset_text = "● Applied (Current Network)";
+        data->reset_class = "reset-applied";
     } else {
-        data->is_ready = false;
+        data->quota_text = "● Ready (Free Tier Available)";
+        data->is_ready = true;
+        data->reset_text = "● Not Applied (Pending)";
+        data->reset_class = "reset-pending";
     }
 
     g_idle_add(on_status_checked, data);
@@ -508,6 +632,10 @@ void on_reset_clicked(GtkButton *btn, gpointer data) {
             exec_cmd_streaming(UNLIMITED_BIN + " reset \"" + proj + "\" 2>&1", true);
             log_line("✔ Clean reset finished! All chat history preserved.");
             set_status("● Reset done! Launch OpenCode.");
+        }
+        if (!last_known_ip.empty() && last_known_ip != "Offline") {
+            record_reset_network(last_known_ip, last_known_location);
+            log_line("✔ Current network (" + last_known_ip + ") marked clean.");
         }
         trigger_status_check(true);
     }).detach();
@@ -676,6 +804,33 @@ static void apply_modern_css() {
         "    font-weight: 600;\n"
         "    font-size: 9px;\n"
         "}\n"
+        ".reset-applied {\n"
+        "    color: #34d399;\n"
+        "    background-color: rgba(16, 185, 129, 0.12);\n"
+        "    border: 1px solid rgba(16, 185, 129, 0.35);\n"
+        "    border-radius: 10px;\n"
+        "    padding: 1px 7px;\n"
+        "    font-weight: 600;\n"
+        "    font-size: 9px;\n"
+        "}\n"
+        ".reset-pending {\n"
+        "    color: #fbbf24;\n"
+        "    background-color: rgba(245, 158, 11, 0.12);\n"
+        "    border: 1px solid rgba(245, 158, 11, 0.35);\n"
+        "    border-radius: 10px;\n"
+        "    padding: 1px 7px;\n"
+        "    font-weight: 600;\n"
+        "    font-size: 9px;\n"
+        "}\n"
+        ".reset-required {\n"
+        "    color: #fb7185;\n"
+        "    background-color: rgba(244, 63, 94, 0.12);\n"
+        "    border: 1px solid rgba(244, 63, 94, 0.35);\n"
+        "    border-radius: 10px;\n"
+        "    padding: 1px 7px;\n"
+        "    font-weight: 600;\n"
+        "    font-size: 9px;\n"
+        "}\n"
         "button {\n"
         "    min-height: 22px;\n"
         "    min-width: 0;\n"
@@ -827,7 +982,7 @@ int main(int argc, char *argv[]) {
 
     app.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(app.window), "OpenCode Helper");
-    gtk_window_set_default_size(GTK_WINDOW(app.window), 380, 480);
+    gtk_window_set_default_size(GTK_WINDOW(app.window), 380, 505);
     gtk_window_set_resizable(GTK_WINDOW(app.window), TRUE);
     gtk_window_set_position(GTK_WINDOW(app.window), GTK_WIN_POS_CENTER);
 
@@ -938,6 +1093,8 @@ int main(int argc, char *argv[]) {
 
     GtkWidget *quota_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     GtkWidget *q_lbl = gtk_label_new("Quota:");
+    gtk_widget_set_size_request(q_lbl, 68, -1);
+    gtk_widget_set_halign(q_lbl, GTK_ALIGN_START);
     gtk_style_context_add_class(gtk_widget_get_style_context(q_lbl), "field-label");
     gtk_box_pack_start(GTK_BOX(quota_row), q_lbl, FALSE, FALSE, 0);
 
@@ -945,6 +1102,18 @@ int main(int argc, char *argv[]) {
     gtk_style_context_add_class(gtk_widget_get_style_context(app.lbl_quota), "quota-limited");
     gtk_box_pack_start(GTK_BOX(quota_row), app.lbl_quota, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(status_card), quota_row, FALSE, FALSE, 1);
+
+    GtkWidget *reset_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *r_lbl = gtk_label_new("Clean Reset:");
+    gtk_widget_set_size_request(r_lbl, 68, -1);
+    gtk_widget_set_halign(r_lbl, GTK_ALIGN_START);
+    gtk_style_context_add_class(gtk_widget_get_style_context(r_lbl), "field-label");
+    gtk_box_pack_start(GTK_BOX(reset_row), r_lbl, FALSE, FALSE, 0);
+
+    app.lbl_reset_state = gtk_label_new("● Checking...");
+    gtk_style_context_add_class(gtk_widget_get_style_context(app.lbl_reset_state), "reset-pending");
+    gtk_box_pack_start(GTK_BOX(reset_row), app.lbl_reset_state, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(status_card), reset_row, FALSE, FALSE, 1);
 
     gtk_box_pack_start(GTK_BOX(content), status_card, FALSE, FALSE, 0);
 
