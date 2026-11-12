@@ -489,7 +489,7 @@ $xaml = @"
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="ACTIVITY LOG" FontSize="8.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="0" Text="Activity Log:" HorizontalAlignment="Left" FontSize="8.5" FontWeight="Bold" Foreground="#475569" VerticalAlignment="Center"/>
                     <Button Name="btnClearLog" Grid.Column="1" Content="Clear" Style="{StaticResource DarkBtn}" Height="18" Padding="6,0" FontSize="8.0"/>
                 </Grid>
 
@@ -562,6 +562,18 @@ if ($guideHeader) {
 }
 
 $script:lastKnownIp = $null
+$script:lastKnownLocation = $null
+$script:lastWasRateLimited = $null
+$script:isFirstCheck = $true
+
+function Get-Subnet24([string]$ip) {
+    if (-not $ip -or $ip -eq "Offline") { return $ip }
+    $parts = $ip.Split('.')
+    if ($parts.Length -ge 3) {
+        return "$($parts[0]).$($parts[1]).$($parts[2])"
+    }
+    return $ip
+}
 
 # Windows Built-in SQLite Detector (winsqlite3.dll)
 $winSqliteCode = @"
@@ -851,28 +863,26 @@ function Check-StatusAsync([bool]$Silent = $false) {
         try {
             $jser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
             $data = $jser.DeserializeObject($e.Result)
-            $ip = $data["ip"]
-            $city = $data["city"]
-            $country = $data["country"]
-            $ipText = "$ip  •  $city, $country"
+            $ip = if ($data.ContainsKey("ip")) { $data["ip"] } else { "Offline" }
+            $city = if ($data.ContainsKey("city")) { $data["city"] } else { "" }
+            $country = if ($data.ContainsKey("country")) { $data["country"] } else { "" }
+            $ipText = if ($ip -eq "Offline") { "🌐 Offline / Connection Error" } elseif ($city) { "$ip  •  $city, $country" } else { "$ip  •  $country" }
 
-            $ipChanged = ($script:lastKnownIp -and $script:lastKnownIp -ne $ip)
-            if ($Silent -and -not $ipChanged) {
-                return
-            }
+            $curSub = Get-Subnet24 $ip
+            $lastSub = Get-Subnet24 $script:lastKnownIp
+            $curLoc = "$city, $country"
 
-            if ($ipChanged) {
-                $window.Dispatcher.Invoke([Action]{
-                    Append-Log "🔄 Connection change detected: $ipText"
-                })
-            }
-            $script:lastKnownIp = $ip
+            $networkChanged = ($script:lastKnownIp -and (
+                ($ip -eq "Offline") -ne ($script:lastKnownIp -eq "Offline") -or
+                $curSub -ne $lastSub -or
+                $curLoc -ne $script:lastKnownLocation
+            ))
 
             $isRateLimited = $false
             $quotaDetails = "Ready (Free Tier Available)"
 
             # Check local spent ledger
-            if (-not $isRateLimited) {
+            if (-not $isRateLimited -and $ip -ne "Offline") {
                 $egressFile = Join-Path $userHome ".config\opencode\unlimited-egress.json"
                 if (Test-Path $egressFile) {
                     try {
@@ -924,21 +934,48 @@ function Check-StatusAsync([bool]$Silent = $false) {
                 }
             }
 
+            $quotaChanged = ($script:lastWasRateLimited -ne $null -and $isRateLimited -ne $script:lastWasRateLimited)
+
             $window.Dispatcher.Invoke([Action]{
                 $lblIp.Text = $ipText
                 if ($isRateLimited) {
                     Update-QuotaBadge "limited" "Free Limit Reached"
                     Set-Status "● Awaiting VPN connection..."
-                    Append-Log "Network: $ipText"
-                    Append-Log "✖ Quota: $quotaDetails"
-                    Append-Log "Awaiting VPN connection to acquire a fresh IP..."
                 } else {
                     Update-QuotaBadge "ready" "Ready"
                     Set-Status "● Ready (Free Tier Available)"
+                }
+
+                if ($script:isFirstCheck -or -not $Silent) {
                     Append-Log "Network: $ipText"
-                    Append-Log "✔ Quota: $quotaDetails"
+                    if ($isRateLimited) {
+                        Append-Log "✖ Quota: $quotaDetails"
+                        Append-Log "Awaiting VPN connection to acquire a fresh IP..."
+                    } else {
+                        Append-Log "✔ Quota: $quotaDetails"
+                    }
+                } elseif ($networkChanged) {
+                    Append-Log "🔄 Connection change detected: $ipText"
+                    if ($isRateLimited) {
+                        Append-Log "✖ Quota: $quotaDetails"
+                        Append-Log "Awaiting VPN connection to acquire a fresh IP..."
+                    } else {
+                        Append-Log "✔ Quota: $quotaDetails"
+                    }
+                } elseif ($quotaChanged) {
+                    if ($isRateLimited) {
+                        Append-Log "✖ Quota: $quotaDetails"
+                        Append-Log "Awaiting VPN connection to acquire a fresh IP..."
+                    } else {
+                        Append-Log "✔ Quota: $quotaDetails"
+                    }
                 }
             })
+
+            $script:lastKnownIp = $ip
+            $script:lastKnownLocation = $curLoc
+            $script:lastWasRateLimited = $isRateLimited
+            $script:isFirstCheck = $false
         } catch {
             if (-not $Silent) {
                 $window.Dispatcher.Invoke([Action]{
@@ -1138,9 +1175,9 @@ $btnLaunch.Add_Click({
 Append-Log "OpenCode Helper (Windows) initialized. Ready."
 Check-StatusAsync $false
 
-# Background VPN connection watcher
+# Background VPN connection watcher (8 seconds, gentle polling with smart smoothing)
 $vpnTimer = New-Object System.Windows.Threading.DispatcherTimer
-$vpnTimer.Interval = [TimeSpan]::FromSeconds(4)
+$vpnTimer.Interval = [TimeSpan]::FromSeconds(8)
 $vpnTimer.Add_Tick({
     Check-StatusAsync $true
 })

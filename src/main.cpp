@@ -40,8 +40,21 @@ struct AppWidgets {
 
 static AppWidgets app;
 static std::string last_known_ip = "";
+static std::string last_known_location = "";
+static bool last_was_rate_limited = false;
 static bool is_first_check = true;
 static std::atomic<bool> check_in_progress(false);
+
+static std::string get_subnet24(const std::string &ip) {
+    if (ip.empty() || ip == "Offline") return ip;
+    size_t p1 = ip.find('.');
+    if (p1 == std::string::npos) return ip;
+    size_t p2 = ip.find('.', p1 + 1);
+    if (p2 == std::string::npos) return ip;
+    size_t p3 = ip.find('.', p2 + 1);
+    if (p3 == std::string::npos) return ip;
+    return ip.substr(0, p3);
+}
 
 static std::string get_timestamp() {
     auto now = std::chrono::system_clock::now();
@@ -260,6 +273,7 @@ void record_spent_ip(const std::string &ip, const std::string &country) {
 
 struct StatusData {
     std::string ip;
+    std::string city;
     std::string country;
     std::string ip_info;
     std::string quota_text;
@@ -285,7 +299,28 @@ static gboolean on_status_checked(gpointer user_data) {
         gtk_style_context_add_class(ctx, "quota-limited");
     }
 
-    if (data->ip_changed && !is_first_check) {
+    std::string cur_loc = data->country + (data->city.empty() ? "" : ", " + data->city);
+    std::string cur_sub = get_subnet24(data->ip);
+    std::string last_sub = get_subnet24(last_known_ip);
+
+    bool network_changed = (!last_known_ip.empty() && (
+        (data->ip == "Offline") != (last_known_ip == "Offline") ||
+        cur_sub != last_sub ||
+        cur_loc != last_known_location
+    ));
+    bool quota_changed = (!is_first_check && data->is_rate_limited != last_was_rate_limited);
+
+    if (is_first_check) {
+        set_status(data->is_ready ? "● Ready" : (data->ip == "Offline" ? "● Offline" : "● Awaiting VPN connection..."));
+        log_line("Network: " + data->ip_info);
+        log_line("Quota status: " + data->quota_text);
+    } else if (!data->silent) {
+        // Manual check button clicked
+        set_status(data->is_ready ? "● Ready" : (data->ip == "Offline" ? "● Offline" : "● Awaiting VPN connection..."));
+        log_line("Network: " + data->ip_info);
+        log_line("Quota status: " + data->quota_text);
+    } else if (network_changed) {
+        // Significant network / server change detected
         log_line("🔄 Connection change detected: " + data->ip_info);
         if (data->is_rate_limited) {
             set_status("● Awaiting VPN connection...");
@@ -295,20 +330,22 @@ static gboolean on_status_checked(gpointer user_data) {
             set_status("● Ready");
             log_line("✔ Quota: Ready (Free Tier Available)");
         }
-    } else if (data->is_rate_limited) {
-        set_status("● Awaiting VPN connection...");
-        if (!data->silent) {
-            log_line("Network: " + data->ip_info);
-            log_line("Quota status: " + data->quota_text);
+    } else if (quota_changed) {
+        // Quota status changed on existing connection
+        if (data->is_rate_limited) {
+            set_status("● Awaiting VPN connection...");
+            log_line("✖ Quota: Free Limit Reached (Switch VPN to get a new IP)");
+            log_line("Awaiting VPN connection to acquire a fresh IP...");
+        } else {
+            set_status("● Ready");
+            log_line("✔ Quota: Ready (Free Tier Available)");
         }
-    } else if (!data->silent) {
-        set_status("● Ready");
-        log_line("Network: " + data->ip_info);
-        log_line("Quota status: " + data->quota_text);
     }
 
     if (!data->ip.empty() && data->ip != "Offline") {
         last_known_ip = data->ip;
+        last_known_location = cur_loc;
+        last_was_rate_limited = data->is_rate_limited;
     }
     is_first_check = false;
 
@@ -348,6 +385,7 @@ void check_status_worker(bool silent) {
     }
 
     data->ip = ip;
+    data->city = city;
     data->country = country;
     if (ip == "Offline") {
         data->ip_info = "🌐 Offline / Connection Error";
@@ -1011,9 +1049,16 @@ int main(int argc, char *argv[]) {
     // LOG CONSOLE SECTION
     GtkWidget *log_header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_style_context_add_class(gtk_widget_get_style_context(log_header), "log-header");
+
     GtkWidget *log_title = gtk_label_new("Activity Log:");
+    gtk_widget_set_halign(log_title, GTK_ALIGN_START);
+    gtk_label_set_xalign(GTK_LABEL(log_title), 0.0f);
     gtk_style_context_add_class(gtk_widget_get_style_context(log_title), "log-title");
-    gtk_box_pack_start(GTK_BOX(log_header), log_title, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(log_header), log_title, FALSE, FALSE, 0);
+
+    GtkWidget *log_spacer = gtk_label_new("");
+    gtk_widget_set_hexpand(log_spacer, TRUE);
+    gtk_box_pack_start(GTK_BOX(log_header), log_spacer, TRUE, TRUE, 0);
 
     app.btn_log_clear = gtk_button_new_with_label("Clear");
     gtk_style_context_add_class(gtk_widget_get_style_context(app.btn_log_clear), "btn-log-clear");
@@ -1049,8 +1094,8 @@ int main(int argc, char *argv[]) {
     log_line("OpenCode Helper initialized. Ready.");
     trigger_status_check(false);
 
-    // 4-Second VPN / Network Watcher
-    g_timeout_add_seconds(4, [](gpointer) -> gboolean {
+    // 8-Second VPN / Network Watcher (Gentle polling with smart smoothing)
+    g_timeout_add_seconds(8, [](gpointer) -> gboolean {
         trigger_status_check(true);
         return TRUE;
     }, NULL);

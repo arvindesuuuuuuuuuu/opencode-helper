@@ -46,7 +46,7 @@ class CompactOpenCodeHelper:
         self.setup_ui()
         self.root.after(50, self.poll_dispatch_queue)
         self.refresh_status_async()
-        self.root.after(4000, self.vpn_watcher)
+        self.root.after(8000, self.vpn_watcher)
 
     def poll_dispatch_queue(self):
         while not self.dispatch_queue.empty():
@@ -62,7 +62,7 @@ class CompactOpenCodeHelper:
 
     def vpn_watcher(self):
         self.refresh_status_async(silent=True)
-        self.root.after(4000, self.vpn_watcher)
+        self.root.after(8000, self.vpn_watcher)
 
     def setup_ui(self):
         # 1. HEADER & STATUS BAR

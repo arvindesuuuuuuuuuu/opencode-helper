@@ -82,7 +82,21 @@ namespace OpenCodeManager
         private string userHome;
         private string unlimitedCmd;
         private string lastKnownIp = null;
+        private string lastKnownLocation = null;
+        private bool? lastWasRateLimited = null;
+        private bool isFirstCheck = true;
         private System.Windows.Threading.DispatcherTimer vpnMonitorTimer;
+
+        private static string GetSubnet24(string ip)
+        {
+            if (string.IsNullOrEmpty(ip) || ip == "Offline") return ip;
+            var parts = ip.Split('.');
+            if (parts.Length >= 3)
+            {
+                return parts[0] + "." + parts[1] + "." + parts[2];
+            }
+            return ip;
+        }
 
         private const string IconBase64 =
             "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAbt" +
@@ -273,7 +287,7 @@ namespace OpenCodeManager
                 await CheckStatusAsync(silent: false);
 
                 vpnMonitorTimer = new System.Windows.Threading.DispatcherTimer();
-                vpnMonitorTimer.Interval = TimeSpan.FromSeconds(4);
+                vpnMonitorTimer.Interval = TimeSpan.FromSeconds(8);
                 vpnMonitorTimer.Tick += async (ts, te) =>
                 {
                     await CheckStatusAsync(silent: true);
@@ -709,11 +723,12 @@ namespace OpenCodeManager
 
             var lblLog = new TextBlock
             {
-                Text = "ACTIVITY LOG",
+                Text = "Activity Log:",
                 FontSize = 8.5,
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#475569")),
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Left
             };
             Grid.SetColumn(lblLog, 0);
             logHeaderGrid.Children.Add(lblLog);
@@ -873,23 +888,21 @@ namespace OpenCodeManager
                     string country = dict.ContainsKey("country") ? dict["country"].ToString() : "";
                     string ipText = string.Format("{0}  \u2022  {1}, {2}", ip, city, country);
 
-                    bool ipChanged = (lastKnownIp != null && lastKnownIp != ip);
-                    if (silent && !ipChanged)
-                    {
-                        return;
-                    }
+                    string curSub = GetSubnet24(ip);
+                    string lastSub = GetSubnet24(lastKnownIp);
+                    string curLoc = city + ", " + country;
 
-                    if (ipChanged)
-                    {
-                        Log(string.Format("\uD83D\uDD04 Connection change detected: {0}", ipText));
-                    }
-                    lastKnownIp = ip;
+                    bool networkChanged = (lastKnownIp != null && (
+                        (ip == "Offline") != (lastKnownIp == "Offline") ||
+                        curSub != lastSub ||
+                        curLoc != lastKnownLocation
+                    ));
 
                     bool isRateLimited = false;
                     string quotaDetails = "Ready (Free Tier Available)";
 
                     // 1. Check local spent ledger
-                    if (!isRateLimited)
+                    if (!isRateLimited && ip != "Offline")
                     {
                         string egressFile = System.IO.Path.Combine(userHome, ".config\\opencode\\unlimited-egress.json");
                         if (File.Exists(egressFile))
@@ -954,6 +967,8 @@ namespace OpenCodeManager
                         }
                     }
 
+                    bool quotaChanged = (lastWasRateLimited != null && isRateLimited != lastWasRateLimited.Value);
+
                     SafeInvoke(() =>
                     {
                         lblIp.Text = ipText;
@@ -961,18 +976,57 @@ namespace OpenCodeManager
                         {
                             UpdateQuotaBadge("limited", "Free Limit Reached");
                             SetStatus("\u25CF Awaiting VPN connection...");
-                            Log("Network: " + ipText);
-                            Log("\u2716 Quota: " + quotaDetails);
-                            Log("Awaiting VPN connection to acquire a fresh IP...");
                         }
                         else
                         {
                             UpdateQuotaBadge("ready", "Ready");
                             SetStatus("\u25CF Ready (Free Tier Available)");
+                        }
+
+                        if (isFirstCheck || !silent)
+                        {
                             Log("Network: " + ipText);
-                            Log("\u2714 Quota: " + quotaDetails);
+                            if (isRateLimited)
+                            {
+                                Log("\u2716 Quota: " + quotaDetails);
+                                Log("Awaiting VPN connection to acquire a fresh IP...");
+                            }
+                            else
+                            {
+                                Log("\u2714 Quota: " + quotaDetails);
+                            }
+                        }
+                        else if (networkChanged)
+                        {
+                            Log(string.Format("\uD83D\uDD04 Connection change detected: {0}", ipText));
+                            if (isRateLimited)
+                            {
+                                Log("\u2716 Quota: " + quotaDetails);
+                                Log("Awaiting VPN connection to acquire a fresh IP...");
+                            }
+                            else
+                            {
+                                Log("\u2714 Quota: " + quotaDetails);
+                            }
+                        }
+                        else if (quotaChanged)
+                        {
+                            if (isRateLimited)
+                            {
+                                Log("\u2716 Quota: " + quotaDetails);
+                                Log("Awaiting VPN connection to acquire a fresh IP...");
+                            }
+                            else
+                            {
+                                Log("\u2714 Quota: " + quotaDetails);
+                            }
                         }
                     });
+
+                    lastKnownIp = ip;
+                    lastKnownLocation = curLoc;
+                    lastWasRateLimited = isRateLimited;
+                    isFirstCheck = false;
                     File.AppendAllText(logPath, "CheckStatusAsync finished successfully\n");
                 }
             }
