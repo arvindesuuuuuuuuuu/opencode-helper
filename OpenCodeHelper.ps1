@@ -393,49 +393,30 @@ $xaml = @"
             <!-- 2. CONTENT AREA -->
             <StackPanel Grid.Row="1" Margin="14,10,14,8">
                 <!-- HERO STATUS CARD -->
-                <Border CornerRadius="5" Background="#121522" BorderBrush="#1d2338" BorderThickness="1" Padding="11,6,10,6" Margin="0,0,0,6">
-                    <StackPanel>
-                        <Grid Margin="0,0,0,4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Path Width="12" Height="12" Stretch="Uniform" Fill="#64748b" Margin="0,0,7,0" VerticalAlignment="Center"
-                                      Data="M 12 2 A 10 10 0 1 0 12 22 A 10 10 0 1 0 12 2 Z M 3.93 13 A 8.04 8.04 0 0 1 4 11 H 7.92 C 7.97 11.68 8.07 12.35 8.22 13 H 3.93 Z M 8.22 11 H 4 C 4.09 9.97 4.41 9 4.93 8.16 L 8.35 9.53 C 8.26 10.01 8.22 10.5 8.22 11 Z M 12 4.07 C 12.8 5.16 13.43 6.51 13.82 8 H 10.18 C 10.57 6.51 11.2 5.16 12 4.07 Z M 10.11 11 C 10.11 10.33 10.17 9.66 10.28 9 H 13.72 C 13.83 9.66 13.89 10.33 13.89 11 C 13.89 11.67 13.83 12.34 13.72 13 H 10.28 C 10.17 12.34 10.11 11.67 10.11 11 Z M 12 19.93 C 11.2 18.84 10.57 17.49 10.18 16 H 13.82 C 13.43 17.49 12.8 18.84 12 19.93 Z" />
-                                <TextBlock Name="lblIp" Text="Probing network status..." FontFamily="Consolas, Segoe UI" FontSize="9.5" Foreground="#94a3b8" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                <Border CornerRadius="5" Background="#121522" BorderBrush="#1d2338" BorderThickness="1" Height="36" Padding="11,0,10,0" Margin="0,0,0,6">
+                    <Grid VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Path Width="12" Height="12" Stretch="Uniform" Fill="#64748b" Margin="0,0,7,0" VerticalAlignment="Center"
+                                  Data="M 12 2 A 10 10 0 1 0 12 22 A 10 10 0 1 0 12 2 Z M 3.93 13 A 8.04 8.04 0 0 1 4 11 H 7.92 C 7.97 11.68 8.07 12.35 8.22 13 H 3.93 Z M 8.22 11 H 4 C 4.09 9.97 4.41 9 4.93 8.16 L 8.35 9.53 C 8.26 10.01 8.22 10.5 8.22 11 Z M 12 4.07 C 12.8 5.16 13.43 6.51 13.82 8 H 10.18 C 10.57 6.51 11.2 5.16 12 4.07 Z M 10.11 11 C 10.11 10.33 10.17 9.66 10.28 9 H 13.72 C 13.83 9.66 13.89 10.33 13.89 11 C 13.89 11.67 13.83 12.34 13.72 13 H 10.28 C 10.17 12.34 10.11 11.67 10.11 11 Z M 12 19.93 C 11.2 18.84 10.57 17.49 10.18 16 H 13.82 C 13.43 17.49 12.8 18.84 12 19.93 Z" />
+                            <TextBlock Name="lblIp" Text="Probing network status..." FontFamily="Consolas, Segoe UI" FontSize="9.5" Foreground="#94a3b8" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+
+                        <!-- Modern Glowing Status Chip -->
+                        <Border Name="badgeQuota" Grid.Column="1" CornerRadius="11" Height="20" Background="#0d1f33" BorderBrush="#0284c7" BorderThickness="1" Padding="8,0,10,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Grid Width="8" Height="8" Margin="0,0,5,0" VerticalAlignment="Center">
+                                    <Ellipse Name="dotQuotaHalo" Width="8" Height="8" Fill="#7dd3fc" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Ellipse Name="dotQuotaInner" Width="5" Height="5" Fill="#38bdf8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Grid>
+                                <TextBlock Name="lblQuota" Text="Checking" FontSize="8.5" FontWeight="SemiBold" Foreground="#93c5fd" VerticalAlignment="Center"/>
                             </StackPanel>
-
-                            <!-- Modern Glowing Status Chip -->
-                            <Border Name="badgeQuota" Grid.Column="1" CornerRadius="11" Height="20" Background="#0d1f33" BorderBrush="#0284c7" BorderThickness="1" Padding="8,0,10,0" VerticalAlignment="Center">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Grid Width="8" Height="8" Margin="0,0,5,0" VerticalAlignment="Center">
-                                        <Ellipse Name="dotQuotaHalo" Width="8" Height="8" Fill="#7dd3fc" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <Ellipse Name="dotQuotaInner" Width="5" Height="5" Fill="#38bdf8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Grid>
-                                    <TextBlock Name="lblQuota" Text="Checking" FontSize="8.5" FontWeight="SemiBold" Foreground="#93c5fd" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Border>
-                        </Grid>
-
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Clean Reset Status:" FontSize="8.5" Foreground="#64748b" VerticalAlignment="Center"/>
-                            <Border Name="badgeReset" Grid.Column="1" CornerRadius="10" Height="20" Background="#062e24" BorderBrush="#059669" BorderThickness="1" Padding="8,0,10,0" VerticalAlignment="Center">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Grid Width="8" Height="8" Margin="0,0,5,0" VerticalAlignment="Center">
-                                        <Ellipse Name="dotResetHalo" Width="8" Height="8" Fill="#34d399" Opacity="0.35" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <Ellipse Name="dotResetInner" Width="5" Height="5" Fill="#10b981" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Grid>
-                                    <TextBlock Name="lblResetStatus" Text="Applied (Current Network)" FontSize="8.5" FontWeight="SemiBold" Foreground="#34d399" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Border>
-                        </Grid>
-                    </StackPanel>
+                        </Border>
+                    </Grid>
                 </Border>
 
                 <!-- QUICK INSTRUCTIONS COLLAPSIBLE DRAWER -->
@@ -553,10 +534,6 @@ $lblQuota      = $window.FindName("lblQuota")
 $badgeQuota    = $window.FindName("badgeQuota")
 $dotQuotaHalo  = $window.FindName("dotQuotaHalo")
 $dotQuotaInner = $window.FindName("dotQuotaInner")
-$badgeReset    = $window.FindName("badgeReset")
-$dotResetHalo  = $window.FindName("dotResetHalo")
-$dotResetInner = $window.FindName("dotResetInner")
-$lblResetStatus= $window.FindName("lblResetStatus")
 $guideHeader   = $window.FindName("guideHeader")
 $guideBody     = $window.FindName("guideBody")
 $lblGuideToggle= $window.FindName("lblGuideToggle")
@@ -575,11 +552,11 @@ if ($guideHeader) {
         if ($guideBody.Visibility -eq [System.Windows.Visibility]::Visible) {
             $guideBody.Visibility = [System.Windows.Visibility]::Collapsed
             $lblGuideToggle.Text = "▾ Details"
-            $window.Height = 425
+            $window.Height = 405
         } else {
             $guideBody.Visibility = [System.Windows.Visibility]::Visible
             $lblGuideToggle.Text = "▴ Hide"
-            $window.Height = 490
+            $window.Height = 470
         }
     })
 }
@@ -647,41 +624,6 @@ function Set-ResetNetwork([string]$ip, [string]$location) {
         $jser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
         [System.IO.File]::WriteAllText($resetFile, $jser.Serialize($obj))
     } catch {}
-}
-
-function Update-ResetBadge([string]$state, [string]$text) {
-    if ($lblResetStatus) { $lblResetStatus.Text = $text }
-    if (-not $badgeReset) { return }
-    switch ($state) {
-        "applied" {
-            $badgeReset.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#062e24")
-            $badgeReset.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#059669")
-            $dotResetHalo.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#34d399")
-            $dotResetInner.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#10b981")
-            $lblResetStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#34d399")
-        }
-        "pending" {
-            $badgeReset.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#291c06")
-            $badgeReset.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#d97706")
-            $dotResetHalo.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fde68a")
-            $dotResetInner.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#f59e0b")
-            $lblResetStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fbbf24")
-        }
-        "required" {
-            $badgeReset.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#2d1015")
-            $badgeReset.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#e11d48")
-            $dotResetHalo.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fda4af")
-            $dotResetInner.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#f43f5e")
-            $lblResetStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#fb7185")
-        }
-        default {
-            $badgeReset.Background = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#131728")
-            $badgeReset.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#334155")
-            $dotResetHalo.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#94a3b8")
-            $dotResetInner.Fill = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#64748b")
-            $lblResetStatus.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString("#94a3b8")
-        }
-    }
 }
 
 # Windows Built-in SQLite Detector (winsqlite3.dll)
@@ -893,6 +835,12 @@ function Update-QuotaBadge([string]$state, [string]$text) {
         $dotQuotaHalo.Fill = $bc.ConvertFromString("#34d399")
         $dotQuotaInner.Fill = $bc.ConvertFromString("#10b981")
         $lblQuota.Foreground = $bc.ConvertFromString("#34d399")
+    } elseif ($state -eq "pending") {
+        $badgeQuota.Background = $bc.ConvertFromString("#291c06")
+        $badgeQuota.BorderBrush = $bc.ConvertFromString("#d97706")
+        $dotQuotaHalo.Fill = $bc.ConvertFromString("#fde68a")
+        $dotQuotaInner.Fill = $bc.ConvertFromString("#f59e0b")
+        $lblQuota.Foreground = $bc.ConvertFromString("#fbbf24")
     } elseif ($state -eq "limited") {
         $badgeQuota.Background = $bc.ConvertFromString("#2c1219")
         $badgeQuota.BorderBrush = $bc.ConvertFromString("#9f1239")
@@ -1049,18 +997,18 @@ function Check-StatusAsync([bool]$Silent = $false) {
 
             $window.Dispatcher.Invoke([Action]{
                 $lblIp.Text = $ipText
-                if ($isRateLimited) {
+                if ($ip -eq "Offline") {
+                    Update-QuotaBadge "offline" "Offline"
+                    Set-Status "● Offline"
+                } elseif ($isRateLimited) {
                     Update-QuotaBadge "limited" "Free Limit Reached"
-                    Update-ResetBadge "required" "Required (Limit Reached)"
                     Set-Status "● Awaiting VPN connection..."
-                } elseif ($isResetApplied) {
-                    Update-QuotaBadge "ready" "Ready"
-                    Update-ResetBadge "applied" "Applied (Current Network)"
-                    Set-Status "● Ready (Free Tier Available)"
+                } elseif (-not $isResetApplied) {
+                    Update-QuotaBadge "pending" "Ready (Reset Needed)"
+                    Set-Status "● Reset Needed"
                 } else {
-                    Update-QuotaBadge "ready" "Ready"
-                    Update-ResetBadge "pending" "Not Applied (Pending)"
-                    Set-Status "● Ready (Reset Pending)"
+                    Update-QuotaBadge "ready" "Ready (Free Tier Available)"
+                    Set-Status "● Ready"
                 }
 
                 if ($script:isFirstCheck -or -not $Silent) {

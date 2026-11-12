@@ -66,10 +66,6 @@ namespace OpenCodeManager
         private Border badgeQuota;
         private Ellipse dotQuotaHalo;
         private Ellipse dotQuotaInner;
-        private TextBlock lblResetStatus;
-        private Border badgeReset;
-        private Ellipse dotResetHalo;
-        private Ellipse dotResetInner;
 
         private ComboBox comboProj;
         private TextBox txtLog;
@@ -161,47 +157,6 @@ namespace OpenCodeManager
             catch { }
 
             return false;
-        }
-
-        private void UpdateResetBadge(string state, string text)
-        {
-            SafeInvoke(() =>
-            {
-                if (lblResetStatus != null) lblResetStatus.Text = text;
-                if (badgeReset == null) return;
-                var bc = new BrushConverter();
-                switch (state)
-                {
-                    case "applied":
-                        badgeReset.Background = (Brush)bc.ConvertFromString("#062e24");
-                        badgeReset.BorderBrush = (Brush)bc.ConvertFromString("#059669");
-                        dotResetHalo.Fill = (Brush)bc.ConvertFromString("#34d399");
-                        dotResetInner.Fill = (Brush)bc.ConvertFromString("#10b981");
-                        lblResetStatus.Foreground = (Brush)bc.ConvertFromString("#34d399");
-                        break;
-                    case "pending":
-                        badgeReset.Background = (Brush)bc.ConvertFromString("#291c06");
-                        badgeReset.BorderBrush = (Brush)bc.ConvertFromString("#d97706");
-                        dotResetHalo.Fill = (Brush)bc.ConvertFromString("#fde68a");
-                        dotResetInner.Fill = (Brush)bc.ConvertFromString("#f59e0b");
-                        lblResetStatus.Foreground = (Brush)bc.ConvertFromString("#fbbf24");
-                        break;
-                    case "required":
-                        badgeReset.Background = (Brush)bc.ConvertFromString("#2d1015");
-                        badgeReset.BorderBrush = (Brush)bc.ConvertFromString("#e11d48");
-                        dotResetHalo.Fill = (Brush)bc.ConvertFromString("#fda4af");
-                        dotResetInner.Fill = (Brush)bc.ConvertFromString("#f43f5e");
-                        lblResetStatus.Foreground = (Brush)bc.ConvertFromString("#fb7185");
-                        break;
-                    default:
-                        badgeReset.Background = (Brush)bc.ConvertFromString("#131728");
-                        badgeReset.BorderBrush = (Brush)bc.ConvertFromString("#334155");
-                        dotResetHalo.Fill = (Brush)bc.ConvertFromString("#94a3b8");
-                        dotResetInner.Fill = (Brush)bc.ConvertFromString("#64748b");
-                        lblResetStatus.Foreground = (Brush)bc.ConvertFromString("#94a3b8");
-                        break;
-                }
-            });
         }
 
         private const string IconBase64 =
@@ -562,20 +517,19 @@ namespace OpenCodeManager
             Grid.SetRow(contentStack, 1);
             mainGrid.Children.Add(contentStack);
 
-            // 3. Status Banner (IP + Glowing Quota Chip + Reset Status)
+            // 3. Status Banner (IP + Single Glowing Status Chip)
             var heroCard = new Border
             {
                 CornerRadius = new CornerRadius(5),
                 Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#121522")),
                 BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1d2338")),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(11, 6, 10, 6),
+                Height = 36,
+                Padding = new Thickness(11, 0, 10, 0),
                 Margin = new Thickness(0, 0, 0, 6)
             };
 
-            var heroStack = new StackPanel();
-
-            var heroGrid = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 4) };
+            var heroGrid = new Grid { VerticalAlignment = VerticalAlignment.Center };
             heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             heroGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -666,71 +620,8 @@ namespace OpenCodeManager
 
             Grid.SetColumn(badgeQuota, 1);
             heroGrid.Children.Add(badgeQuota);
-            heroStack.Children.Add(heroGrid);
 
-            // Row 2: Clean Reset Status
-            var resetGrid = new Grid { VerticalAlignment = VerticalAlignment.Center };
-            resetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            resetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var lblResetTitle = new TextBlock
-            {
-                Text = "Clean Reset Status:",
-                FontSize = 8.5,
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748b")),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(lblResetTitle, 0);
-            resetGrid.Children.Add(lblResetTitle);
-
-            badgeReset = new Border
-            {
-                CornerRadius = new CornerRadius(10),
-                Height = 20,
-                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#062e24")),
-                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#059669")),
-                BorderThickness = new Thickness(1),
-                Padding = new Thickness(8, 0, 10, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            var resetChipStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var resetDotGrid = new Grid { Width = 8, Height = 8, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center };
-            dotResetHalo = new Ellipse
-            {
-                Width = 8, Height = 8,
-                Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#34d399")),
-                Opacity = 0.35,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            dotResetInner = new Ellipse
-            {
-                Width = 5, Height = 5,
-                Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#10b981")),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            resetDotGrid.Children.Add(dotResetHalo);
-            resetDotGrid.Children.Add(dotResetInner);
-            resetChipStack.Children.Add(resetDotGrid);
-
-            lblResetStatus = new TextBlock
-            {
-                Text = "Applied (Current Network)",
-                FontSize = 8.5,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#34d399")),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            resetChipStack.Children.Add(lblResetStatus);
-            badgeReset.Child = resetChipStack;
-
-            Grid.SetColumn(badgeReset, 1);
-            resetGrid.Children.Add(badgeReset);
-            heroStack.Children.Add(resetGrid);
-
-            heroCard.Child = heroStack;
+            heroCard.Child = heroGrid;
             contentStack.Children.Add(heroCard);
 
             // 4. Workflow Tips Drawer (Collapsible)
@@ -1006,6 +897,14 @@ namespace OpenCodeManager
                     dotQuotaInner.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#10b981"));
                     lblQuota.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#34d399"));
                 }
+                else if (state == "pending")
+                {
+                    badgeQuota.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#291c06"));
+                    badgeQuota.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#d97706"));
+                    dotQuotaHalo.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#fde68a"));
+                    dotQuotaInner.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#f59e0b"));
+                    lblQuota.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#fbbf24"));
+                }
                 else if (state == "limited")
                 {
                     badgeQuota.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2c1219"));
@@ -1145,23 +1044,25 @@ namespace OpenCodeManager
                     SafeInvoke(() =>
                     {
                         lblIp.Text = ipText;
-                        if (isRateLimited)
+                        if (ip == "Offline")
+                        {
+                            UpdateQuotaBadge("offline", "Offline");
+                            SetStatus("\u25CF Offline");
+                        }
+                        else if (isRateLimited)
                         {
                             UpdateQuotaBadge("limited", "Free Limit Reached");
-                            UpdateResetBadge("required", "Required (Limit Reached)");
                             SetStatus("\u25CF Awaiting VPN connection...");
                         }
-                        else if (isResetApplied)
+                        else if (!isResetApplied)
                         {
-                            UpdateQuotaBadge("ready", "Ready");
-                            UpdateResetBadge("applied", "Applied (Current Network)");
-                            SetStatus("\u25CF Ready (Free Tier Available)");
+                            UpdateQuotaBadge("pending", "Ready (Reset Needed)");
+                            SetStatus("\u25CF Reset Needed");
                         }
                         else
                         {
-                            UpdateQuotaBadge("ready", "Ready");
-                            UpdateResetBadge("pending", "Not Applied (Pending)");
-                            SetStatus("\u25CF Ready (Reset Pending)");
+                            UpdateQuotaBadge("ready", "Ready (Free Tier Available)");
+                            SetStatus("\u25CF Ready");
                         }
 
                         if (isFirstCheck || !silent)

@@ -29,7 +29,6 @@ struct AppWidgets {
     GtkWidget *window;
     GtkWidget *lbl_ip;
     GtkWidget *lbl_quota;
-    GtkWidget *lbl_reset_state;
     GtkWidget *combo_proj;
     GtkWidget *btn_auto;
     GtkWidget *btn_reset;
@@ -350,9 +349,8 @@ struct StatusData {
     std::string city;
     std::string country;
     std::string ip_info;
-    std::string quota_text;
-    std::string reset_text;
-    std::string reset_class;
+    std::string status_text;
+    std::string status_class;
     bool is_reset_applied;
     bool is_ready;
     bool is_rate_limited;
@@ -364,25 +362,13 @@ static gboolean on_status_checked(gpointer user_data) {
     StatusData *data = (StatusData *)user_data;
 
     gtk_label_set_text(GTK_LABEL(app.lbl_ip), data->ip_info.c_str());
-    gtk_label_set_text(GTK_LABEL(app.lbl_quota), data->quota_text.c_str());
-    if (app.lbl_reset_state) {
-        gtk_label_set_text(GTK_LABEL(app.lbl_reset_state), data->reset_text.c_str());
-        GtkStyleContext *rctx = gtk_widget_get_style_context(app.lbl_reset_state);
-        gtk_style_context_remove_class(rctx, "reset-applied");
-        gtk_style_context_remove_class(rctx, "reset-pending");
-        gtk_style_context_remove_class(rctx, "reset-required");
-        gtk_style_context_add_class(rctx, data->reset_class.c_str());
-    }
+    gtk_label_set_text(GTK_LABEL(app.lbl_quota), data->status_text.c_str());
 
     GtkStyleContext *ctx = gtk_widget_get_style_context(app.lbl_quota);
     gtk_style_context_remove_class(ctx, "quota-ready");
+    gtk_style_context_remove_class(ctx, "quota-pending");
     gtk_style_context_remove_class(ctx, "quota-limited");
-
-    if (data->is_ready) {
-        gtk_style_context_add_class(ctx, "quota-ready");
-    } else {
-        gtk_style_context_add_class(ctx, "quota-limited");
-    }
+    gtk_style_context_add_class(ctx, data->status_class.c_str());
 
     std::string cur_loc = data->country + (data->city.empty() ? "" : ", " + data->city);
     std::string cur_sub = get_subnet24(data->ip);
@@ -396,9 +382,9 @@ static gboolean on_status_checked(gpointer user_data) {
     bool quota_changed = (!is_first_check && data->is_rate_limited != last_was_rate_limited);
 
     if (is_first_check) {
-        set_status(data->is_ready ? "● Ready" : (data->ip == "Offline" ? "● Offline" : "● Awaiting VPN connection..."));
+        set_status(data->is_ready ? "● Ready" : (data->ip == "Offline" ? "● Offline" : (data->is_rate_limited ? "● Awaiting VPN connection..." : "● Reset Needed")));
         log_line("Network: " + data->ip_info);
-        log_line("Quota status: " + data->quota_text);
+        log_line("Status: " + data->status_text);
         if (data->is_rate_limited) {
             log_line("✖ Clean Reset: Required (Free limit reached on session)");
         } else if (data->is_reset_applied) {
@@ -408,9 +394,9 @@ static gboolean on_status_checked(gpointer user_data) {
         }
     } else if (!data->silent) {
         // Manual check button clicked
-        set_status(data->is_ready ? "● Ready" : (data->ip == "Offline" ? "● Offline" : "● Awaiting VPN connection..."));
+        set_status(data->is_ready ? "● Ready" : (data->ip == "Offline" ? "● Offline" : (data->is_rate_limited ? "● Awaiting VPN connection..." : "● Reset Needed")));
         log_line("Network: " + data->ip_info);
-        log_line("Quota status: " + data->quota_text);
+        log_line("Status: " + data->status_text);
         if (data->is_rate_limited) {
             log_line("✖ Clean Reset: Required (Free limit reached on session)");
         } else if (data->is_reset_applied) {
@@ -423,11 +409,11 @@ static gboolean on_status_checked(gpointer user_data) {
         log_line("🔄 Connection change detected: " + data->ip_info);
         if (data->is_rate_limited) {
             set_status("● Awaiting VPN connection...");
-            log_line("✖ Quota: Free Limit Reached (Switch VPN to get a new IP)");
+            log_line("✖ Status: Free Limit Reached (Switch VPN to get a new IP)");
             log_line("Awaiting VPN connection to acquire a fresh IP...");
         } else {
-            set_status("● Ready");
-            log_line("✔ Quota: Ready (Free Tier Available)");
+            set_status(data->is_reset_applied ? "● Ready" : "● Reset Needed");
+            log_line(std::string(data->is_reset_applied ? "✔" : "ℹ") + " Status: " + data->status_text);
             if (data->is_reset_applied) {
                 log_line("✔ Clean Reset: Already applied for this network");
             } else {
@@ -438,11 +424,11 @@ static gboolean on_status_checked(gpointer user_data) {
         // Quota status changed on existing connection
         if (data->is_rate_limited) {
             set_status("● Awaiting VPN connection...");
-            log_line("✖ Quota: Free Limit Reached (Switch VPN to get a new IP)");
+            log_line("✖ Status: Free Limit Reached (Switch VPN to get a new IP)");
             log_line("Awaiting VPN connection to acquire a fresh IP...");
         } else {
-            set_status("● Ready");
-            log_line("✔ Quota: Ready (Free Tier Available)");
+            set_status(data->is_reset_applied ? "● Ready" : "● Reset Needed");
+            log_line(std::string(data->is_reset_applied ? "✔" : "ℹ") + " Status: " + data->status_text);
             if (data->is_reset_applied) {
                 log_line("✔ Clean Reset: Already applied for this network");
             } else {
@@ -531,7 +517,6 @@ void check_status_worker(bool silent) {
                     if (segment.find("\"spent\": true") != std::string::npos ||
                         segment.find("\"spent\":true") != std::string::npos) {
                         data->is_rate_limited = true;
-                        data->quota_text = "● Free Limit Reached (Spent IP)";
                     }
                 }
             }
@@ -550,7 +535,6 @@ void check_status_worker(bool silent) {
                 sqlite3_bind_int64(stmt, 1, threshold_ms);
                 if (sqlite3_step(stmt) == SQLITE_ROW) {
                     data->is_rate_limited = true;
-                    data->quota_text = "● Free Limit Reached";
                 }
                 sqlite3_finalize(stmt);
             }
@@ -562,24 +546,21 @@ void check_status_worker(bool silent) {
     data->is_reset_applied = is_reset_applied_for_network(ip, reset_details);
 
     if (ip == "Offline") {
-        data->quota_text = "● Connection Error";
+        data->status_text = "● Offline";
+        data->status_class = "quota-limited";
         data->is_ready = false;
-        data->reset_text = "● Offline";
-        data->reset_class = "reset-pending";
     } else if (data->is_rate_limited) {
+        data->status_text = "● Free Limit Reached";
+        data->status_class = "quota-limited";
         data->is_ready = false;
-        data->reset_text = "● Required (Free Limit Reached)";
-        data->reset_class = "reset-required";
-    } else if (data->is_reset_applied) {
-        data->quota_text = "● Ready (Free Tier Available)";
-        data->is_ready = true;
-        data->reset_text = "● Applied (Current Network)";
-        data->reset_class = "reset-applied";
+    } else if (!data->is_reset_applied) {
+        data->status_text = "● Ready (Reset Needed)";
+        data->status_class = "quota-pending";
+        data->is_ready = false;
     } else {
-        data->quota_text = "● Ready (Free Tier Available)";
+        data->status_text = "● Ready (Free Tier Available)";
+        data->status_class = "quota-ready";
         data->is_ready = true;
-        data->reset_text = "● Not Applied (Pending)";
-        data->reset_class = "reset-pending";
     }
 
     g_idle_add(on_status_checked, data);
@@ -795,25 +776,7 @@ static void apply_modern_css() {
         "    font-weight: 600;\n"
         "    font-size: 9px;\n"
         "}\n"
-        ".quota-limited {\n"
-        "    color: #fb7185;\n"
-        "    background-color: rgba(244, 63, 94, 0.12);\n"
-        "    border: 1px solid rgba(244, 63, 94, 0.35);\n"
-        "    border-radius: 10px;\n"
-        "    padding: 1px 7px;\n"
-        "    font-weight: 600;\n"
-        "    font-size: 9px;\n"
-        "}\n"
-        ".reset-applied {\n"
-        "    color: #34d399;\n"
-        "    background-color: rgba(16, 185, 129, 0.12);\n"
-        "    border: 1px solid rgba(16, 185, 129, 0.35);\n"
-        "    border-radius: 10px;\n"
-        "    padding: 1px 7px;\n"
-        "    font-weight: 600;\n"
-        "    font-size: 9px;\n"
-        "}\n"
-        ".reset-pending {\n"
+        ".quota-pending {\n"
         "    color: #fbbf24;\n"
         "    background-color: rgba(245, 158, 11, 0.12);\n"
         "    border: 1px solid rgba(245, 158, 11, 0.35);\n"
@@ -822,7 +785,7 @@ static void apply_modern_css() {
         "    font-weight: 600;\n"
         "    font-size: 9px;\n"
         "}\n"
-        ".reset-required {\n"
+        ".quota-limited {\n"
         "    color: #fb7185;\n"
         "    background-color: rgba(244, 63, 94, 0.12);\n"
         "    border: 1px solid rgba(244, 63, 94, 0.35);\n"
@@ -982,7 +945,7 @@ int main(int argc, char *argv[]) {
 
     app.window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(app.window), "OpenCode Helper");
-    gtk_window_set_default_size(GTK_WINDOW(app.window), 380, 505);
+    gtk_window_set_default_size(GTK_WINDOW(app.window), 380, 480);
     gtk_window_set_resizable(GTK_WINDOW(app.window), TRUE);
     gtk_window_set_position(GTK_WINDOW(app.window), GTK_WIN_POS_CENTER);
 
@@ -1091,29 +1054,17 @@ int main(int argc, char *argv[]) {
     gtk_style_context_add_class(gtk_widget_get_style_context(app.lbl_ip), "ip-chip");
     gtk_box_pack_start(GTK_BOX(status_card), app.lbl_ip, FALSE, FALSE, 0);
 
-    GtkWidget *quota_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    GtkWidget *q_lbl = gtk_label_new("Quota:");
-    gtk_widget_set_size_request(q_lbl, 68, -1);
-    gtk_widget_set_halign(q_lbl, GTK_ALIGN_START);
-    gtk_style_context_add_class(gtk_widget_get_style_context(q_lbl), "field-label");
-    gtk_box_pack_start(GTK_BOX(quota_row), q_lbl, FALSE, FALSE, 0);
+    GtkWidget *status_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *s_lbl = gtk_label_new("Status:");
+    gtk_widget_set_size_request(s_lbl, 48, -1);
+    gtk_widget_set_halign(s_lbl, GTK_ALIGN_START);
+    gtk_style_context_add_class(gtk_widget_get_style_context(s_lbl), "field-label");
+    gtk_box_pack_start(GTK_BOX(status_row), s_lbl, FALSE, FALSE, 0);
 
     app.lbl_quota = gtk_label_new("● Checking...");
     gtk_style_context_add_class(gtk_widget_get_style_context(app.lbl_quota), "quota-limited");
-    gtk_box_pack_start(GTK_BOX(quota_row), app.lbl_quota, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(status_card), quota_row, FALSE, FALSE, 1);
-
-    GtkWidget *reset_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    GtkWidget *r_lbl = gtk_label_new("Clean Reset:");
-    gtk_widget_set_size_request(r_lbl, 68, -1);
-    gtk_widget_set_halign(r_lbl, GTK_ALIGN_START);
-    gtk_style_context_add_class(gtk_widget_get_style_context(r_lbl), "field-label");
-    gtk_box_pack_start(GTK_BOX(reset_row), r_lbl, FALSE, FALSE, 0);
-
-    app.lbl_reset_state = gtk_label_new("● Checking...");
-    gtk_style_context_add_class(gtk_widget_get_style_context(app.lbl_reset_state), "reset-pending");
-    gtk_box_pack_start(GTK_BOX(reset_row), app.lbl_reset_state, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(status_card), reset_row, FALSE, FALSE, 1);
+    gtk_box_pack_start(GTK_BOX(status_row), app.lbl_quota, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(status_card), status_row, FALSE, FALSE, 1);
 
     gtk_box_pack_start(GTK_BOX(content), status_card, FALSE, FALSE, 0);
 
