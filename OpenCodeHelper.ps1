@@ -765,16 +765,16 @@ function Refresh-ProjectList {
             [void]$comboProj.Items.Add($userHome)
         }
 
-        if ($activeDir -and (Test-Path $activeDir)) {
-            $comboProj.Text = $activeDir
-            if ($LogOutput) {
-                Append-Log "✔ Auto-detected active project: $activeDir"
-                Set-Status "● Project: $(Split-Path -Leaf $activeDir)"
-            }
-        } elseif ($current -and (Test-Path $current)) {
+        if ($current -and (($current -eq $ALL_OPTION) -or (Test-Path $current))) {
             $comboProj.Text = $current
         } elseif ($comboProj.Items.Count -gt 0) {
             $comboProj.SelectedIndex = 0
+            if ($activeDir) {
+                if ($LogOutput) {
+                    Append-Log "✔ Detected active project: $activeDir"
+                    Set-Status "● Project: $(Split-Path -Leaf $activeDir)"
+                }
+            }
         }
     } catch {
         if ($LogOutput) { Append-Log "Project detection note: $($_.Exception.Message)" }
@@ -1004,7 +1004,7 @@ function Check-StatusAsync([bool]$Silent = $false) {
                         $dbBytes = [System.Text.Encoding]::UTF8.GetBytes("$dbPath`0")
                         if ([WinSqliteDetector]::sqlite3_open_v2($dbBytes, [ref]$db, 1, [IntPtr]::Zero) -eq 0 -and $db -ne [IntPtr]::Zero) {
                             $thresholdMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - 300000
-                            $sql = "SELECT 1 FROM session_message WHERE time_created > $thresholdMs AND (cast(data as text) LIKE '%provider.free-limit%' OR cast(data as text) LIKE '%Free usage limit reached%') LIMIT 1;"
+                            $sql = "SELECT 1 FROM session_message WHERE time_created > $thresholdMs AND (cast(data as text) LIKE '%`"error`":{`"type`":`"provider.free-limit`"%' OR cast(data as text) LIKE '%`"type`":`"FreeUsageLimitError`"%') LIMIT 1;"
                             $sqlBytes = [System.Text.Encoding]::UTF8.GetBytes("$sql`0")
                             [IntPtr]$stmt = [IntPtr]::Zero
                             if ([WinSqliteDetector]::sqlite3_prepare_v2($db, $sqlBytes, -1, [ref]$stmt, [IntPtr]::Zero) -eq 0 -and $stmt -ne [IntPtr]::Zero) {

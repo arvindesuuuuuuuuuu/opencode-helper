@@ -1033,7 +1033,7 @@ namespace OpenCodeManager
                                 if (sqlite3_open_v2(dbBytes, out db, 1 /* SQLITE_OPEN_READONLY */, IntPtr.Zero) == 0 && db != IntPtr.Zero)
                                 {
                                     long thresholdMs = (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 300) * 1000;
-                                    string sql = "SELECT 1 FROM session_message WHERE time_created > " + thresholdMs + " AND (cast(data as text) LIKE '%provider.free-limit%' OR cast(data as text) LIKE '%Free usage limit reached%') LIMIT 1;";
+                                    string sql = "SELECT 1 FROM session_message WHERE time_created > " + thresholdMs + " AND (cast(data as text) LIKE '%\"error\":{\"type\":\"provider.free-limit\"%' OR cast(data as text) LIKE '%\"type\":\"FreeUsageLimitError\"%') LIMIT 1;";
                                     byte[] sqlBytes = System.Text.Encoding.UTF8.GetBytes(sql + "\0");
                                     IntPtr stmt = IntPtr.Zero;
                                     if (sqlite3_prepare_v2(db, sqlBytes, -1, out stmt, IntPtr.Zero) == 0 && stmt != IntPtr.Zero)
@@ -1791,22 +1791,18 @@ namespace OpenCodeManager
                         comboProj.Items.Add(userHome);
                     }
 
-                    if (!string.IsNullOrEmpty(activeDir) && Directory.Exists(activeDir))
-                    {
-                        comboProj.Text = activeDir;
-                        if (logOutput)
-                        {
-                            Log("\u2714 Auto-detected active project: " + activeDir);
-                            SetStatus("\u25CF Project: " + System.IO.Path.GetFileName(activeDir));
-                        }
-                    }
-                    else if (!string.IsNullOrEmpty(currentText) && Directory.Exists(currentText))
+                    if (!string.IsNullOrEmpty(currentText) && (currentText == ALL_OPTION || Directory.Exists(currentText)))
                     {
                         comboProj.Text = currentText;
                     }
                     else if (comboProj.Items.Count > 0)
                     {
                         comboProj.SelectedIndex = 0;
+                        if (!string.IsNullOrEmpty(activeDir))
+                        {
+                            Log("\u2714 Detected active project: " + activeDir);
+                            SetStatus("\u25CF Project: " + System.IO.Path.GetFileName(activeDir));
+                        }
                     }
                 }
                 catch (Exception ex)
