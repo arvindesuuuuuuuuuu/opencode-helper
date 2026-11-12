@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     OpenCode Helper - Production Native GUI for Windows (WPF/PowerShell)
     Combines OpenCode Unlimited reset workflows, ExpressVPN region switching,
@@ -607,20 +607,6 @@ function Test-IsResetApplied([string]$ip) {
         } catch {}
     }
 
-    # 2. Check unlimited-ip.json
-    $ipCacheFile = Join-Path $userHome ".config\opencode\unlimited-ip.json"
-    if (Test-Path $ipCacheFile) {
-        try {
-            $raw = [System.IO.File]::ReadAllText($ipCacheFile)
-            $jser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
-            $data = $jser.DeserializeObject($raw)
-            $cachedIp = $data["ip"]
-            if ($cachedIp -eq $ip -or (Get-Subnet24 $cachedIp) -eq $curSub) {
-                return $true
-            }
-        } catch {}
-    }
-
     return $false
 }
 
@@ -739,6 +725,59 @@ function Refresh-ProjectList {
             }
         }
 
+        # 2. Check opencode.db
+        $ocDbCandidates = @(
+            "$env:LOCALAPPDATA\opencode\opencode.db",
+            (Join-Path $userHome ".local\share\opencode\opencode.db")
+        )
+        foreach ($ocDb in $ocDbCandidates) {
+            if ((Test-Path $ocDb) -and ([System.Management.Automation.PSTypeName]'WinSqliteDetector').Type) {
+                [IntPtr]$odb = [IntPtr]::Zero
+                $odbBytes = [System.Text.Encoding]::UTF8.GetBytes("$ocDb`0")
+                if ([WinSqliteDetector]::sqlite3_open_v2($odbBytes, [ref]$odb, 1, [IntPtr]::Zero) -eq 0 -and $odb -ne [IntPtr]::Zero) {
+                    try {
+                        $dirSql = "SELECT DISTINCT directory FROM session_v2 WHERE directory IS NOT NULL ORDER BY time_updated DESC;"
+                        $dBytes = [System.Text.Encoding]::UTF8.GetBytes("$dirSql`0")
+                        [IntPtr]$ostmt = [IntPtr]::Zero
+                        if ([WinSqliteDetector]::sqlite3_prepare_v2($odb, $dBytes, -1, [ref]$ostmt, [IntPtr]::Zero) -eq 0 -and $ostmt -ne [IntPtr]::Zero) {
+                            while ([WinSqliteDetector]::sqlite3_step($ostmt) -eq 100) {
+                                $dPtr = [WinSqliteDetector]::sqlite3_column_text($ostmt, 0)
+                                $d = [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi($dPtr)
+                                if ($d) {
+                                    $d = $d -replace '/', '\'
+                                    if ((Test-Path $d) -and -not $detectedDirs.Contains($d)) {
+                                        if (-not $activeDir) { $activeDir = $d }
+                                        $detectedDirs.Add($d)
+                                    }
+                                }
+                            }
+                            [WinSqliteDetector]::sqlite3_finalize($ostmt) | Out-Null
+                        }
+
+                        $wSql = "SELECT DISTINCT worktree FROM project WHERE worktree IS NOT NULL ORDER BY time_active DESC;"
+                        $wBytes = [System.Text.Encoding]::UTF8.GetBytes("$wSql`0")
+                        [IntPtr]$wstmt = [IntPtr]::Zero
+                        if ([WinSqliteDetector]::sqlite3_prepare_v2($odb, $wBytes, -1, [ref]$wstmt, [IntPtr]::Zero) -eq 0 -and $wstmt -ne [IntPtr]::Zero) {
+                            while ([WinSqliteDetector]::sqlite3_step($wstmt) -eq 100) {
+                                $wPtr = [WinSqliteDetector]::sqlite3_column_text($wstmt, 0)
+                                $w = [System.Runtime.InteropServices.Marshal]::PtrToStringAnsi($wPtr)
+                                if ($w) {
+                                    $w = $w -replace '/', '\'
+                                    if ((Test-Path $w) -and -not $detectedDirs.Contains($w)) {
+                                        $detectedDirs.Add($w)
+                                    }
+                                }
+                            }
+                            [WinSqliteDetector]::sqlite3_finalize($wstmt) | Out-Null
+                        }
+                    } finally {
+                        [WinSqliteDetector]::sqlite3_close_v2($odb) | Out-Null
+                    }
+                    break
+                }
+            }
+        }
+
         $current = $comboProj.Text
         $comboProj.Items.Clear()
 
@@ -765,7 +804,7 @@ function Refresh-ProjectList {
             [void]$comboProj.Items.Add($userHome)
         }
 
-        if ($current -and (($current -eq $ALL_OPTION) -or (Test-Path $current))) {
+        if ($current -and $current -ne $userHome -and (($current -eq $ALL_OPTION) -or (Test-Path $current))) {
             $comboProj.Text = $current
         } elseif ($comboProj.Items.Count -gt 0) {
             $comboProj.SelectedIndex = 0
@@ -810,6 +849,9 @@ $script:unlimitedCmd = "opencode-unlimited.cmd"
 foreach ($c in $unlimitedCmdCandidates) {
     if (Test-Path $c) { $script:unlimitedCmd = (Resolve-Path $c).Path; break }
 }
+$script:engineStaged = $false
+$script:engineProbes = 0
+$script:engineNoAnswer = 0
 
 # Resolve ExpressVPN CLI
 $script:expressVpnPath = ""
@@ -1042,10 +1084,10 @@ function Check-StatusAsync([bool]$Silent = $false) {
 
                 $isAlreadyApplied = ($isResetApplied -and -not $isRateLimited)
                 if ($btnReset) {
-                    $btnReset.IsEnabled = -not $isAlreadyApplied
+                    $btnReset.IsEnabled = $true
                     if ($isAlreadyApplied) {
                         $btnReset.Content = "✔ 1-Click Clean Reset (Applied)"
-                        $btnReset.ToolTip = "Clean reset has already been applied for this network"
+                        $btnReset.ToolTip = "Clean reset applied for this network (Click anytime to reset fresh again)"
                     } else {
                         $btnReset.Content = "⚡ 1-Click Clean Reset"
                         $btnReset.ToolTip = "Close OpenCode and generate a fresh session ID for this workspace"
@@ -1137,14 +1179,16 @@ function Invoke-AsyncProcess {
     $outEv = Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -Action {
         if ($EventArgs.Data) {
             $window.Dispatcher.Invoke([Action]{
-                Append-RawLog $EventArgs.Data
+                $line = Format-EngineLine $EventArgs.Data
+                if ($line) { Append-RawLog $line }
             })
         }
     }
     $errEv = Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -Action {
         if ($EventArgs.Data) {
             $window.Dispatcher.Invoke([Action]{
-                Append-RawLog $EventArgs.Data
+                $line = Format-EngineLine $EventArgs.Data
+                if ($line) { Append-RawLog $line }
             })
         }
     }
@@ -1162,8 +1206,57 @@ function Invoke-AsyncProcess {
     $proc.BeginErrorReadLine()
 }
 
+# Folds the engine's own [1/6]..[6/6] pass into the status line and the log.
+function Format-EngineLine {
+    param([string]$Line)
+
+    if (-not $script:engineStaged) { return $Line }
+
+    $t = $Line.TrimEnd()
+    if (-not $t) { return $null }
+
+    if ($t -match '^\[([1-6])/6\]\s*(.+)$') {
+        $n = $matches[1]
+        $title = $matches[2]
+        $script:engineNoAnswer = 0
+        Set-Status "● $n/6 $title..."
+        return "[$n/6] $title"
+    }
+
+    if ($t -like 'testing:*') {
+        $script:engineProbes++
+        Set-Status "● 4/6 egress route — probe $($script:engineProbes)"
+        return "  probe $($script:engineProbes) " + $t.Substring(8).Trim()
+    }
+
+    if ($t -like '*no answer*') {
+        $script:engineNoAnswer++
+        return $null
+    }
+
+    if ($t -like '==>*') { return $null }
+
+    return $t
+}
+
+function Get-LastEgressIp {
+    # The engine records the post-rotation address in stage 5.
+    try {
+        $file = Join-Path $userHome ".config\opencode\unlimited.json"
+        if (Test-Path $file) {
+            $state = [System.IO.File]::ReadAllText($file) | ConvertFrom-Json
+            if ($state.lastIp -and $state.lastIp -ne "Offline") { return $state.lastIp }
+        }
+    } catch { }
+    return $script:lastKnownIp
+}
+
 function Invoke-UnlimitedCommand {
-    param([string]$Arguments, [scriptblock]$OnDone)
+    param([string]$Arguments, [switch]$Staged, [scriptblock]$OnDone)
+
+    $script:engineStaged = [bool]$Staged
+    $script:engineProbes = 0
+    $script:engineNoAnswer = 0
 
     $ps1 = if ($script:unlimitedCmd -like "*.ps1") { $script:unlimitedCmd } else { [System.IO.Path]::ChangeExtension($script:unlimitedCmd, ".ps1") }
     if (Test-Path $ps1) {
@@ -1210,33 +1303,30 @@ $btnReset.Add_Click({
         }
         if ($targets.Count -eq 0) { $targets += $userHome }
 
-        Append-Log "Running opencode-unlimited clear across all sessions..."
-        Invoke-UnlimitedCommand "clear" -OnDone {
-            Append-Log "Resetting session IDs across $($targets.Count) workspace(s)..."
+        Append-Log "Running the full 6-stage pass over every session..."
+        Invoke-UnlimitedCommand "reset" -Staged -OnDone {
+            Append-Log "Re-iding $($targets.Count) workspace(s), messages kept..."
             $ps1 = if ($script:unlimitedCmd -like "*.ps1") { $script:unlimitedCmd } else { [System.IO.Path]::ChangeExtension($script:unlimitedCmd, ".ps1") }
             foreach ($t in $targets) {
-                Append-Log "  -> Resetting workspace: $t"
+                Append-Log "  -> $t"
                 if (Test-Path $ps1) {
-                    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$ps1" reset "$t" | ForEach-Object { Append-RawLog $_ }
+                    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$ps1" reid "$t" 2>&1 | ForEach-Object { Append-RawLog $_ }
                 } else {
-                    & cmd.exe /c "`"`"$script:unlimitedCmd`" reset `"$t`"`"" | ForEach-Object { Append-RawLog $_ }
+                    & cmd.exe /c "`"`"$script:unlimitedCmd`" reid `"$t`"`"" 2>&1 | ForEach-Object { Append-RawLog $_ }
                 }
             }
-            Set-ResetNetwork $script:lastKnownIp $script:lastKnownLocation
+            Set-ResetNetwork (Get-LastEgressIp) $script:lastKnownLocation
             Append-Log "✔ Clean reset finished! Current network marked clean."
             Set-Status "● Reset done! Launch OpenCode."
             Check-StatusAsync
         }
     } else {
-        Append-Log "Running opencode-unlimited clear..."
-        Invoke-UnlimitedCommand "clear" -OnDone {
-            Append-Log "Running opencode-unlimited reset `"$proj`"..."
-            Invoke-UnlimitedCommand "reset `"$proj`"" -OnDone {
-                Set-ResetNetwork $script:lastKnownIp $script:lastKnownLocation
-                Append-Log "✔ Clean reset finished! Current network marked clean."
-                Set-Status "● Reset done! Launch OpenCode."
-                Check-StatusAsync
-            }
+        Append-Log "Running the full 6-stage reset for this workspace..."
+        Invoke-UnlimitedCommand "reset `"$proj`"" -Staged -OnDone {
+            Set-ResetNetwork (Get-LastEgressIp) $script:lastKnownLocation
+            Append-Log "✔ Clean reset finished! Current network marked clean."
+            Set-Status "● Reset done! Launch OpenCode."
+            Check-StatusAsync
         }
     }
 })

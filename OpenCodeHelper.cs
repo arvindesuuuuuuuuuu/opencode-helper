@@ -138,24 +138,6 @@ namespace OpenCodeManager
             }
             catch { }
 
-            // 2. Fallback to unlimited-ip.json
-            try
-            {
-                string file = System.IO.Path.Combine(userHome, ".config\\opencode\\unlimited-ip.json");
-                if (File.Exists(file))
-                {
-                    string raw = File.ReadAllText(file);
-                    var jser = new JavaScriptSerializer();
-                    var dict = jser.Deserialize<Dictionary<string, object>>(raw);
-                    if (dict != null && dict.ContainsKey("ip"))
-                    {
-                        string cachedIp = dict["ip"].ToString();
-                        if (cachedIp == ip || GetSubnet24(cachedIp) == curSub) return true;
-                    }
-                }
-            }
-            catch { }
-
             return false;
         }
 
@@ -717,8 +699,8 @@ namespace OpenCodeManager
 
             comboProj = new ComboBox { IsEditable = true, Height = 26, FontSize = 9.5, Margin = new Thickness(0, 0, 4, 0) };
             comboProj.DropDownOpened += (s, e) => RefreshProjectList(false);
-            comboProj.Items.Add(userHome);
-            comboProj.Text = userHome;
+            comboProj.Items.Add("All Workspaces (All Sessions)");
+            comboProj.SelectedIndex = 0;
             Grid.SetColumn(comboProj, 1);
             projGrid.Children.Add(comboProj);
 
@@ -1082,9 +1064,9 @@ namespace OpenCodeManager
                         bool isAlreadyApplied = (isResetApplied && !isRateLimited);
                         if (btnReset != null)
                         {
-                            btnReset.IsEnabled = !isAlreadyApplied;
+                            btnReset.IsEnabled = true;
                             btnReset.Content = isAlreadyApplied ? "\u2714 1-Click Clean Reset (Applied)" : "\u26A1 1-Click Clean Reset";
-                            btnReset.ToolTip = isAlreadyApplied ? "Clean reset has already been applied for this network" : "Close OpenCode and generate a fresh session ID for this workspace";
+                            btnReset.ToolTip = isAlreadyApplied ? "Clean reset applied for this network (Click anytime to reset fresh again)" : "Close OpenCode and generate a fresh session ID for this workspace";
                         }
 
                         if (isFirstCheck || !silent)
@@ -1225,8 +1207,72 @@ namespace OpenCodeManager
             catch { }
         }
 
+        private int engineExitCode = 0;
+
+        private bool EngineReady()
+        {
+            if (!string.IsNullOrEmpty(unlimitedCmd) && File.Exists(unlimitedCmd)) return true;
+
+            string[] names = new string[]
+            {
+                "opencode-unlimited.cmd",
+                "opencode-unlimited.ps1",
+                "opencode-unlimited.exe",
+                "opencode-unlimited"
+            };
+
+            string pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (var dir in pathVar.Split(System.IO.Path.PathSeparator))
+            {
+                if (string.IsNullOrWhiteSpace(dir)) continue;
+                string clean = dir.Trim().Trim('"');
+                if (clean.Length == 0) continue;
+                foreach (var n in names)
+                {
+                    try
+                    {
+                        if (File.Exists(System.IO.Path.Combine(clean, n))) return true;
+                    }
+                    catch { }
+                }
+            }
+            return false;
+        }
+
+        private string LastEgressIp()
+        {
+            // The engine records the post-rotation address in stage 5. Prefer it:
+            // lastKnownIp is whatever the probe saw before the route moved.
+            try
+            {
+                string file = System.IO.Path.Combine(userHome, ".config\\opencode\\unlimited.json");
+                if (File.Exists(file))
+                {
+                    var dict = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(file));
+                    if (dict != null && dict.ContainsKey("lastIp") && dict["lastIp"] != null)
+                    {
+                        string v = dict["lastIp"].ToString();
+                        if (v.Length > 0 && v != "Offline") return v;
+                    }
+                }
+            }
+            catch { }
+            if (!string.IsNullOrEmpty(lastKnownIp) && lastKnownIp != "Offline") return lastKnownIp;
+            return lastKnownIp;
+        }
+
         private void RunUnlimitedCommand(string args)
         {
+            RunUnlimitedEngine(args, false);
+        }
+
+        // staged=true folds the engine's own [1/6]..[6/6] pass into the
+        // status line and the activity log instead of dumping it raw.
+        private void RunUnlimitedEngine(string args, bool staged)
+        {
+            string exe;
+            string argLine;
+
             if (!string.IsNullOrEmpty(unlimitedCmd) && File.Exists(unlimitedCmd))
             {
                 string ps1 = unlimitedCmd.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase)
@@ -1235,13 +1281,134 @@ namespace OpenCodeManager
 
                 if (File.Exists(ps1))
                 {
-                    RunProcessStreaming("powershell.exe", string.Format("-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{0}\" {1}", ps1, args));
+                    exe = "powershell.exe";
+                    argLine = string.Format("-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{0}\" {1}", ps1, args);
+                    RunEngineProcess(exe, argLine, staged);
                     return;
                 }
             }
 
             // Fallback: cmd.exe with outer quote safety
-            RunProcessStreaming("cmd.exe", string.Format("/c \"\"{0}\" {1}\"", unlimitedCmd, args));
+            exe = "cmd.exe";
+            argLine = string.Format("/c \"\"{0}\" {1}\"", unlimitedCmd, args);
+            RunEngineProcess(exe, argLine, staged);
+        }
+
+        private void RunEngineProcess(string exe, string args, bool staged)
+        {
+            int noAnswer = 0;
+            int probes = 0;
+            int seenStage = 0;
+
+            Action flush = () =>
+            {
+                if (noAnswer > 0)
+                {
+                    RawLog(string.Format("  {0} candidate(s) did not answer, moving on", noAnswer));
+                    noAnswer = 0;
+                }
+            };
+
+            try
+            {
+                var psi = new ProcessStartInfo(exe, args)
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using (var p = new Process { StartInfo = psi })
+                {
+                    Action<string> onLine = (raw) =>
+                    {
+                        if (raw == null) return;
+                        string t = raw.TrimEnd();
+                        if (t.Length == 0) return;
+
+                        if (!staged)
+                        {
+                            RawLog(t);
+                            return;
+                        }
+
+                        int stage;
+                        string title;
+                        if (TryReadStage(t, out stage, out title))
+                        {
+                            flush();
+                            seenStage = stage;
+                            RawLog(string.Format("[{0}/6] {1}", stage, title));
+                            SetStatus(string.Format("\u25CF {0}/6 {1}...", stage, title));
+                            return;
+                        }
+
+                        if (t.StartsWith("testing:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            probes++;
+                            RawLog("  probe " + probes + " " + t.Substring(8).Trim());
+                            SetStatus(string.Format("\u25CF 4/6 egress route \u2014 probe {0}", probes));
+                            return;
+                        }
+
+                        if (t.IndexOf("no answer", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            noAnswer++;
+                            return;
+                        }
+
+                        if (t.StartsWith("==>", StringComparison.Ordinal)) return;
+
+                        RawLog(t);
+                    };
+
+                    p.OutputDataReceived += (s, e) => onLine(e.Data);
+                    p.ErrorDataReceived += (s, e) => onLine(e.Data);
+                    p.Start();
+                    p.BeginOutputReadLine();
+                    p.BeginErrorReadLine();
+                    p.WaitForExit();
+
+                    engineExitCode = p.ExitCode;
+                    flush();
+                }
+            }
+            catch (Exception ex)
+            {
+                RawLog("Error executing " + exe + ": " + ex.Message);
+                engineExitCode = -1;
+            }
+
+            if (staged && seenStage > 0 && seenStage < 6)
+            {
+                RawLog(string.Format("  pass stopped at stage {0}/6", seenStage));
+            }
+        }
+
+        private static bool TryReadStage(string line, out int stage, out string title)
+        {
+            stage = 0;
+            title = null;
+            if (line.Length < 6 || line[0] != '[') return false;
+
+            int close = line.IndexOf(']');
+            if (close < 4) return false;
+
+            string head = line.Substring(1, close - 1);   // "1/6"
+            int slash = head.IndexOf('/');
+            if (slash <= 0) return false;
+            if (head.Substring(slash + 1) != "6") return false;
+
+            int n;
+            if (!int.TryParse(head.Substring(0, slash), out n)) return false;
+            if (n < 1 || n > 6) return false;
+
+            title = line.Substring(close + 1).Trim();
+            if (title.Length == 0) return false;
+
+            stage = n;
+            return true;
         }
 
         private async Task CleanResetAsync()
@@ -1258,10 +1425,28 @@ namespace OpenCodeManager
             string proj = comboProj.Text;
             if (string.IsNullOrEmpty(proj)) proj = userHome;
 
+            if (!EngineReady())
+            {
+                Log("\u2716 opencode-unlimited was not found on PATH or next to this app.");
+                Log("  Install the engine, then press Check:  cd OpenCode-Unlimited  &&  .\\install.ps1");
+                SetStatus("\u25CF Engine missing.");
+                UpdateQuotaBadge("limited", "Engine Missing");
+                SafeInvoke(() =>
+                {
+                    if (btnReset != null)
+                    {
+                        btnReset.IsEnabled = true;
+                        btnReset.Content = "\u26A1 1-Click Clean Reset";
+                    }
+                });
+                return;
+            }
+
             Log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
             Log("\u26A1 1-Click Clean Reset initiated");
             Log("Target directory: " + proj);
             SetStatus("\u25CF Closing OpenCode & resetting...");
+            UpdateQuotaBadge("probing", "Resetting");
 
             await Task.Run(() =>
             {
@@ -1299,34 +1484,37 @@ namespace OpenCodeManager
 
                 System.Threading.Thread.Sleep(500);
 
-                bool isAll = (proj == "All Workspaces (All Sessions)" || proj.StartsWith("All Workspaces"));
+                bool isAll = string.IsNullOrEmpty(proj) || (proj == "All Workspaces (All Sessions)" || proj.StartsWith("All Workspaces"));
                 if (isAll)
                 {
                     string dummy;
                     var allDirs = DetectOpenCodeProjects(out dummy);
-                    if (allDirs.Count == 0 && Directory.Exists(@"D:\trickcal-launcher")) allDirs.Add(@"D:\trickcal-launcher");
                     if (allDirs.Count == 0) allDirs.Add(userHome);
 
-                    Log("Running opencode-unlimited clear across all sessions...");
-                    RunUnlimitedCommand("clear");
+                    Log("Running the full 6-stage pass over every session...");
+                    RunUnlimitedEngine("reset", true);
 
-                    Log(string.Format("Resetting session IDs across {0} workspace(s)...", allDirs.Count));
+                    Log(string.Format("Re-iding {0} workspace(s), messages kept...", allDirs.Count));
                     foreach (var dir in allDirs)
                     {
-                        Log("  -> Resetting workspace: " + dir);
-                        RunUnlimitedCommand(string.Format("reset \"{0}\"", dir));
+                        Log("  -> " + dir);
+                        RunUnlimitedCommand(string.Format("reid \"{0}\"", dir));
                     }
                 }
                 else
                 {
-                    Log("Running opencode-unlimited clear...");
-                    RunUnlimitedCommand("clear");
-
-                    Log(string.Format("Running opencode-unlimited reset \"{0}\"...", proj));
-                    RunUnlimitedCommand(string.Format("reset \"{0}\"", proj));
+                    Log("Running the full 6-stage reset for this workspace...");
+                    RunUnlimitedEngine(string.Format("reset \"{0}\"", proj), true);
                 }
 
-                RecordResetNetwork(lastKnownIp, lastKnownLocation);
+                if (engineExitCode != 0)
+                {
+                    Log("\u2716 Engine exited with code " + engineExitCode + ". Nothing was faked.");
+                    SetStatus("\u25CF Reset incomplete.");
+                    return;
+                }
+
+                RecordResetNetwork(LastEgressIp(), lastKnownLocation);
                 Log("\u2714 Clean reset finished! Current network marked clean.");
                 SetStatus("\u25CF Reset done! Launch OpenCode.");
             });
@@ -1399,33 +1587,6 @@ namespace OpenCodeManager
             {
                 Log("\u2716 Failed to launch OpenCode: " + ex.Message);
                 SetStatus("\u25CF Launch failed.");
-            }
-        }
-
-        private void RunProcessStreaming(string exe, string args)
-        {
-            try
-            {
-                var psi = new ProcessStartInfo(exe, args)
-                {
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using (var p = new Process { StartInfo = psi })
-                {
-                    p.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) RawLog(e.Data); };
-                    p.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) RawLog(e.Data); };
-                    p.Start();
-                    p.BeginOutputReadLine();
-                    p.BeginErrorReadLine();
-                    p.WaitForExit();
-                }
-            }
-            catch (Exception ex)
-            {
-                RawLog("Error executing " + exe + ": " + ex.Message);
             }
         }
 
@@ -1744,6 +1905,72 @@ namespace OpenCodeManager
                 if (db != IntPtr.Zero) sqlite3_close_v2(db);
             }
 
+            // 2. Also discover from opencode.db (canonical workspaces & sessions)
+            string[] ocDbCandidates = new string[]
+            {
+                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"opencode\opencode.db"),
+                System.IO.Path.Combine(userHome, @".local\share\opencode\opencode.db")
+            };
+            foreach (var ocDb in ocDbCandidates)
+            {
+                if (File.Exists(ocDb))
+                {
+                    IntPtr odb = IntPtr.Zero;
+                    IntPtr ostmt = IntPtr.Zero;
+                    try
+                    {
+                        byte[] odbBytes = System.Text.Encoding.UTF8.GetBytes(ocDb + "\0");
+                        if (sqlite3_open_v2(odbBytes, out odb, 1 /* SQLITE_OPEN_READONLY */, IntPtr.Zero) == 0 && odb != IntPtr.Zero)
+                        {
+                            string dirSql = "SELECT DISTINCT directory FROM session_v2 WHERE directory IS NOT NULL ORDER BY time_updated DESC;";
+                            byte[] dBytes = System.Text.Encoding.UTF8.GetBytes(dirSql + "\0");
+                            if (sqlite3_prepare_v2(odb, dBytes, -1, out ostmt, IntPtr.Zero) == 0 && ostmt != IntPtr.Zero)
+                            {
+                                while (sqlite3_step(ostmt) == 100)
+                                {
+                                    string d = Utf8PtrToString(sqlite3_column_text(ostmt, 0));
+                                    if (!string.IsNullOrEmpty(d))
+                                    {
+                                        d = d.Replace('/', '\\');
+                                        if (Directory.Exists(d))
+                                        {
+                                            if (string.IsNullOrEmpty(activeProject)) activeProject = d;
+                                            if (!list.Contains(d)) list.Add(d);
+                                        }
+                                    }
+                                }
+                                sqlite3_finalize(ostmt);
+                                ostmt = IntPtr.Zero;
+                            }
+
+                            string wSql = "SELECT DISTINCT worktree FROM project WHERE worktree IS NOT NULL ORDER BY time_active DESC;";
+                            byte[] wBytes = System.Text.Encoding.UTF8.GetBytes(wSql + "\0");
+                            if (sqlite3_prepare_v2(odb, wBytes, -1, out ostmt, IntPtr.Zero) == 0 && ostmt != IntPtr.Zero)
+                            {
+                                while (sqlite3_step(ostmt) == 100)
+                                {
+                                    string d = Utf8PtrToString(sqlite3_column_text(ostmt, 0));
+                                    if (!string.IsNullOrEmpty(d))
+                                    {
+                                        d = d.Replace('/', '\\');
+                                        if (Directory.Exists(d) && !list.Contains(d)) list.Add(d);
+                                    }
+                                }
+                                sqlite3_finalize(ostmt);
+                                ostmt = IntPtr.Zero;
+                            }
+                        }
+                    }
+                    catch { }
+                    finally
+                    {
+                        if (ostmt != IntPtr.Zero) sqlite3_finalize(ostmt);
+                        if (odb != IntPtr.Zero) sqlite3_close_v2(odb);
+                    }
+                    break;
+                }
+            }
+
             return list;
         }
 
@@ -1791,7 +2018,7 @@ namespace OpenCodeManager
                         comboProj.Items.Add(userHome);
                     }
 
-                    if (!string.IsNullOrEmpty(currentText) && (currentText == ALL_OPTION || Directory.Exists(currentText)))
+                    if (!string.IsNullOrEmpty(currentText) && currentText != userHome && (currentText == ALL_OPTION || Directory.Exists(currentText)))
                     {
                         comboProj.Text = currentText;
                     }
