@@ -26,8 +26,8 @@ done
 
 if [ "$UNINSTALL" -eq 1 ]; then
     echo "==> Uninstalling OpenCode Helper..."
-    rm -f "$INSTALL_DIR/opencode-helper"
-    rm -f "$DESKTOP_DIR/opencode-helper.desktop"
+    rm -f "$INSTALL_DIR/opencode-helper" "$INSTALL_DIR/opencode-manager"
+    rm -f "$DESKTOP_DIR/opencode-helper.desktop" "$DESKTOP_DIR/opencode-manager.desktop"
     rm -f "$ICON_DIR/ai.opencode.png"
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
@@ -54,6 +54,9 @@ fi
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$DESKTOP_DIR"
 mkdir -p "$ICON_DIR"
+
+# Clean up any legacy naming
+rm -f "$DESKTOP_DIR/opencode-manager.desktop" "$INSTALL_DIR/opencode-manager"
 
 echo "[*] Copying binary to $INSTALL_DIR/opencode-helper..."
 cp -f "$BIN_SRC" "$INSTALL_DIR/opencode-helper"
