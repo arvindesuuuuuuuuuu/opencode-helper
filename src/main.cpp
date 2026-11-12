@@ -17,7 +17,24 @@
 #include <algorithm>
 
 const std::string HOME = std::getenv("HOME") ? std::getenv("HOME") : "/home/arvin";
-const std::string UNLIMITED_BIN = HOME + "/Infosoft/OpenCode-Unlimited/bin/opencode-unlimited";
+
+static std::string resolve_unlimited_bin() {
+    std::vector<std::string> candidates = {
+        HOME + "/Infosoft/opencode-manager/OpenCode-Unlimited/bin/opencode-unlimited",
+        "./OpenCode-Unlimited/bin/opencode-unlimited",
+        HOME + "/Infosoft/OpenCode-Unlimited/bin/opencode-unlimited",
+        HOME + "/.local/bin/opencode-unlimited",
+        "/usr/local/bin/opencode-unlimited"
+    };
+    for (const auto &c : candidates) {
+        if (access(c.c_str(), X_OK) == 0) {
+            return c;
+        }
+    }
+    return HOME + "/Infosoft/opencode-manager/OpenCode-Unlimited/bin/opencode-unlimited";
+}
+
+const std::string UNLIMITED_BIN = resolve_unlimited_bin();
 const std::string EGRESS_FILE = HOME + "/.config/opencode/unlimited-egress.json";
 const std::string OC_LOG_PATH = HOME + "/.local/share/opencode/log/opencode.log";
 const std::string DESKTOP_DB = HOME + "/.config/ai.opencode.desktop/drafts.sqlite";
