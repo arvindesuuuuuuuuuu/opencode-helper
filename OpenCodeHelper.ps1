@@ -563,17 +563,8 @@ if ($guideHeader) {
 
 $script:lastKnownIp = $null
 
-# Project Auto-Detection Function
-function Refresh-ProjectList {
-    param([bool]$LogOutput = $false)
-
-    try {
-        $dbPath = "$env:APPDATA\ai.opencode.desktop\drafts.sqlite"
-        $activeDir = $null
-        $detectedDirs = [System.Collections.Generic.List[string]]::new()
-
-        if (Test-Path $dbPath) {
-            $code = @"
+# Windows Built-in SQLite Detector (winsqlite3.dll)
+$winSqliteCode = @"
 using System;
 using System.Runtime.InteropServices;
 public static class WinSqliteDetector {
@@ -591,10 +582,20 @@ public static class WinSqliteDetector {
     public static extern int sqlite3_close_v2(IntPtr db);
 }
 "@
-            if (-not ([System.Management.Automation.PSTypeName]'WinSqliteDetector').Type) {
-                Add-Type -TypeDefinition $code -Language CSharp
-            }
+if (-not ([System.Management.Automation.PSTypeName]'WinSqliteDetector').Type) {
+    try { Add-Type -TypeDefinition $winSqliteCode -Language CSharp } catch {}
+}
 
+# Project Auto-Detection Function
+function Refresh-ProjectList {
+    param([bool]$LogOutput = $false)
+
+    try {
+        $dbPath = "$env:APPDATA\ai.opencode.desktop\drafts.sqlite"
+        $activeDir = $null
+        $detectedDirs = [System.Collections.Generic.List[string]]::new()
+
+        if ((Test-Path $dbPath) -and ([System.Management.Automation.PSTypeName]'WinSqliteDetector').Type) {
             [IntPtr]$db = [IntPtr]::Zero
             $dbBytes = [System.Text.Encoding]::UTF8.GetBytes("$dbPath`0")
             if ([WinSqliteDetector]::sqlite3_open_v2($dbBytes, [ref]$db, 1, [IntPtr]::Zero) -eq 0 -and $db -ne [IntPtr]::Zero) {
@@ -890,7 +891,38 @@ function Check-StatusAsync([bool]$Silent = $false) {
                 }
             }
 
-            # Quota status is determined strictly by the ledger or active session without false-positive poisoning
+            # 2. Check OpenCode SQLite database for active stored limit errors in last 5 minutes
+            if (-not $isRateLimited -and $ip -ne "Offline") {
+                $dbCandidates = @(
+                    (Join-Path $userHome ".local\share\opencode\opencode.db"),
+                    (Join-Path $env:LOCALAPPDATA "opencode\opencode.db"),
+                    (Join-Path $env:LOCALAPPDATA "opencode\data\opencode.db")
+                )
+                $dbPath = ""
+                foreach ($cand in $dbCandidates) {
+                    if (Test-Path $cand) { $dbPath = $cand; break }
+                }
+                if ($dbPath -and ([System.Management.Automation.PSTypeName]'WinSqliteDetector').Type) {
+                    try {
+                        [IntPtr]$db = [IntPtr]::Zero
+                        $dbBytes = [System.Text.Encoding]::UTF8.GetBytes("$dbPath`0")
+                        if ([WinSqliteDetector]::sqlite3_open_v2($dbBytes, [ref]$db, 1, [IntPtr]::Zero) -eq 0 -and $db -ne [IntPtr]::Zero) {
+                            $thresholdMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - 300000
+                            $sql = "SELECT 1 FROM session_message WHERE time_created > $thresholdMs AND (cast(data as text) LIKE '%provider.free-limit%' OR cast(data as text) LIKE '%Free usage limit reached%') LIMIT 1;"
+                            $sqlBytes = [System.Text.Encoding]::UTF8.GetBytes("$sql`0")
+                            [IntPtr]$stmt = [IntPtr]::Zero
+                            if ([WinSqliteDetector]::sqlite3_prepare_v2($db, $sqlBytes, -1, [ref]$stmt, [IntPtr]::Zero) -eq 0 -and $stmt -ne [IntPtr]::Zero) {
+                                if ([WinSqliteDetector]::sqlite3_step($stmt) -eq 100) {
+                                    $isRateLimited = $true
+                                    $quotaDetails = "Free Limit Reached (Free limit exhausted on current session)"
+                                }
+                                [WinSqliteDetector]::sqlite3_finalize($stmt) | Out-Null
+                            }
+                            [WinSqliteDetector]::sqlite3_close_v2($db) | Out-Null
+                        }
+                    } catch {}
+                }
+            }
 
             $window.Dispatcher.Invoke([Action]{
                 $lblIp.Text = $ipText
