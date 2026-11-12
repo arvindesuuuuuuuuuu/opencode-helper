@@ -20,18 +20,20 @@ const std::string HOME = std::getenv("HOME") ? std::getenv("HOME") : "/home/arvi
 
 static std::string resolve_unlimited_bin() {
     std::vector<std::string> candidates = {
-        HOME + "/Infosoft/opencode-manager/OpenCode-Unlimited/bin/opencode-unlimited",
-        "./OpenCode-Unlimited/bin/opencode-unlimited",
         HOME + "/Infosoft/OpenCode-Unlimited/bin/opencode-unlimited",
+        "../OpenCode-Unlimited/bin/opencode-unlimited",
+        HOME + "/OpenCode-Unlimited/bin/opencode-unlimited",
+        HOME + "/.local/share/opencode-unlimited/bin/opencode-unlimited",
         HOME + "/.local/bin/opencode-unlimited",
-        "/usr/local/bin/opencode-unlimited"
+        "/usr/local/bin/opencode-unlimited",
+        "opencode-unlimited"
     };
     for (const auto &c : candidates) {
         if (access(c.c_str(), X_OK) == 0) {
             return c;
         }
     }
-    return HOME + "/Infosoft/opencode-manager/OpenCode-Unlimited/bin/opencode-unlimited";
+    return HOME + "/Infosoft/OpenCode-Unlimited/bin/opencode-unlimited";
 }
 
 const std::string UNLIMITED_BIN = resolve_unlimited_bin();
@@ -991,8 +993,18 @@ int main(int argc, char *argv[]) {
     gtk_window_set_position(GTK_WINDOW(app.window), GTK_WIN_POS_CENTER);
 
     // Set application icon if available
-    if (access("/usr/share/icons/hicolor/128x128/apps/ai.opencode.png", F_OK) == 0) {
-        gtk_window_set_icon_from_file(GTK_WINDOW(app.window), "/usr/share/icons/hicolor/128x128/apps/ai.opencode.png", NULL);
+    std::vector<std::string> icon_candidates = {
+        "app.png",
+        HOME + "/.local/share/icons/hicolor/256x256/apps/ai.opencode.png",
+        HOME + "/.local/share/icons/hicolor/128x128/apps/ai.opencode.png",
+        "/usr/share/icons/hicolor/256x256/apps/ai.opencode.png",
+        "/usr/share/icons/hicolor/128x128/apps/ai.opencode.png"
+    };
+    for (const auto &ic : icon_candidates) {
+        if (access(ic.c_str(), F_OK) == 0) {
+            gtk_window_set_icon_from_file(GTK_WINDOW(app.window), ic.c_str(), NULL);
+            break;
+        }
     }
 
     // Completely frameless window

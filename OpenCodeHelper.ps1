@@ -795,16 +795,14 @@ $comboProj.Add_DropDownOpened({
 # Paths for OpenCode-Unlimited
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $unlimitedCmdCandidates = @(
-    (Join-Path $scriptRoot "OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
-    (Join-Path $scriptRoot "OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
     (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
     (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
-    "D:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.ps1",
-    "D:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.cmd",
     (Join-Path $userHome "Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
     (Join-Path $userHome "Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
     (Join-Path $userHome "OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
     (Join-Path $userHome "OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+    (Join-Path $env:LOCALAPPDATA "opencode-unlimited\bin\opencode-unlimited.ps1"),
+    (Join-Path $env:LOCALAPPDATA "opencode-unlimited\bin\opencode-unlimited.cmd"),
     "opencode-unlimited.ps1",
     "opencode-unlimited.cmd"
 )

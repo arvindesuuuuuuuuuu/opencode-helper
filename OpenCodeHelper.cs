@@ -362,18 +362,14 @@ namespace OpenCodeManager
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
             string[] candidates = new string[]
             {
-                System.IO.Path.Combine(appDir, @"OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
-                System.IO.Path.Combine(appDir, @"OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
                 System.IO.Path.Combine(appDir, @"..\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
                 System.IO.Path.Combine(appDir, @"..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
-                @"d:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.ps1",
-                @"d:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.cmd",
                 System.IO.Path.Combine(userHome, @"Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
                 System.IO.Path.Combine(userHome, @"Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
                 System.IO.Path.Combine(userHome, @"OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
                 System.IO.Path.Combine(userHome, @"OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
-                System.IO.Path.Combine(userHome, @"opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
-                System.IO.Path.Combine(userHome, @"opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"opencode-unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"opencode-unlimited\bin\opencode-unlimited.cmd"),
                 "opencode-unlimited.ps1",
                 "opencode-unlimited.cmd"
             };
