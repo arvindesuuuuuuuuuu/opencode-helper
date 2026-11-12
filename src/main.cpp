@@ -370,6 +370,18 @@ static gboolean on_status_checked(gpointer user_data) {
     gtk_style_context_remove_class(ctx, "quota-limited");
     gtk_style_context_add_class(ctx, data->status_class.c_str());
 
+    bool is_already_applied = (data->is_reset_applied && !data->is_rate_limited);
+    if (app.btn_reset) {
+        gtk_widget_set_sensitive(app.btn_reset, !is_already_applied);
+        if (is_already_applied) {
+            gtk_button_set_label(GTK_BUTTON(app.btn_reset), "✔ 1-Click Clean Reset (Applied)");
+            gtk_widget_set_tooltip_text(app.btn_reset, "Clean reset has already been applied for this network");
+        } else {
+            gtk_button_set_label(GTK_BUTTON(app.btn_reset), "🚀 1-Click Clean Reset");
+            gtk_widget_set_tooltip_text(app.btn_reset, "Close OpenCode and generate a fresh session ID for this workspace");
+        }
+    }
+
     std::string cur_loc = data->country + (data->city.empty() ? "" : ", " + data->city);
     std::string cur_sub = get_subnet24(data->ip);
     std::string last_sub = get_subnet24(last_known_ip);
@@ -584,6 +596,11 @@ void on_reset_clicked(GtkButton *btn, gpointer data) {
     const char *proj_text = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(app.combo_proj));
     std::string proj = proj_text ? proj_text : "";
     bool is_all = (proj == "All Workspaces (All Sessions)" || proj.rfind("All Workspaces", 0) == 0);
+
+    if (app.btn_reset) {
+        gtk_widget_set_sensitive(app.btn_reset, FALSE);
+        gtk_button_set_label(GTK_BUTTON(app.btn_reset), "⏳ Resetting OpenCode...");
+    }
 
     log_line("════════════════════════════════════");
     log_line("🚀 1-Click Clean Reset initiated");
@@ -852,6 +869,13 @@ static void apply_modern_css() {
         ".hero-btn:hover {\n"
         "    background-image: linear-gradient(to bottom, #3b82f6, #2563eb);\n"
         "    border-color: #60a5fa;\n"
+        "}\n"
+        ".hero-btn:disabled {\n"
+        "    background-image: none;\n"
+        "    background-color: #121524;\n"
+        "    border: 1px solid #1c2236;\n"
+        "    color: #475569;\n"
+        "    box-shadow: none;\n"
         "}\n"
         ".launch-btn {\n"
         "    background-image: linear-gradient(to bottom, #16a34a, #15803d);\n"

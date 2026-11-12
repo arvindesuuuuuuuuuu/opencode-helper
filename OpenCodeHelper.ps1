@@ -274,6 +274,11 @@ $xaml = @"
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="bdr" Property="Opacity" Value="0.85"/>
                             </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bdr" Property="Background" Value="#121524"/>
+                                <Setter TargetName="bdr" Property="BorderBrush" Value="#1c2236"/>
+                                <Setter Property="Foreground" Value="#475569"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -299,6 +304,11 @@ $xaml = @"
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="bdr" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bdr" Property="Background" Value="#121524"/>
+                                <Setter TargetName="bdr" Property="BorderBrush" Value="#1c2236"/>
+                                <Setter Property="Foreground" Value="#475569"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -326,6 +336,11 @@ $xaml = @"
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="bdr" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bdr" Property="Background" Value="#121524"/>
+                                <Setter TargetName="bdr" Property="BorderBrush" Value="#1c2236"/>
+                                <Setter Property="Foreground" Value="#475569"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -1011,6 +1026,18 @@ function Check-StatusAsync([bool]$Silent = $false) {
                     Set-Status "● Ready"
                 }
 
+                $isAlreadyApplied = ($isResetApplied -and -not $isRateLimited)
+                if ($btnReset) {
+                    $btnReset.IsEnabled = -not $isAlreadyApplied
+                    if ($isAlreadyApplied) {
+                        $btnReset.Content = "✔ 1-Click Clean Reset (Applied)"
+                        $btnReset.ToolTip = "Clean reset has already been applied for this network"
+                    } else {
+                        $btnReset.Content = "⚡ 1-Click Clean Reset"
+                        $btnReset.ToolTip = "Close OpenCode and generate a fresh session ID for this workspace"
+                    }
+                }
+
                 if ($script:isFirstCheck -or -not $Silent) {
                     Append-Log "Network: $ipText"
                     if ($isRateLimited) {
@@ -1134,6 +1161,9 @@ function Invoke-UnlimitedCommand {
 
 # 1-Click Clean Reset
 $btnReset.Add_Click({
+    $btnReset.IsEnabled = $false
+    $btnReset.Content = "⏳ Resetting OpenCode..."
+
     $proj = $comboProj.Text
     if (-not $proj) { $proj = $userHome }
 

@@ -1065,6 +1065,14 @@ namespace OpenCodeManager
                             SetStatus("\u25CF Ready");
                         }
 
+                        bool isAlreadyApplied = (isResetApplied && !isRateLimited);
+                        if (btnReset != null)
+                        {
+                            btnReset.IsEnabled = !isAlreadyApplied;
+                            btnReset.Content = isAlreadyApplied ? "\u2714 1-Click Clean Reset (Applied)" : "\u26A1 1-Click Clean Reset";
+                            btnReset.ToolTip = isAlreadyApplied ? "Clean reset has already been applied for this network" : "Close OpenCode and generate a fresh session ID for this workspace";
+                        }
+
                         if (isFirstCheck || !silent)
                         {
                             Log("Network: " + ipText);
@@ -1224,6 +1232,15 @@ namespace OpenCodeManager
 
         private async Task CleanResetAsync()
         {
+            SafeInvoke(() =>
+            {
+                if (btnReset != null)
+                {
+                    btnReset.IsEnabled = false;
+                    btnReset.Content = "\u23F3 Resetting OpenCode...";
+                }
+            });
+
             string proj = comboProj.Text;
             if (string.IsNullOrEmpty(proj)) proj = userHome;
 
