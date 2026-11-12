@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     OpenCode Helper - Production Native GUI for Windows (WPF/PowerShell)
     Combines OpenCode Unlimited reset workflows, ExpressVPN region switching,
@@ -795,14 +795,14 @@ $comboProj.Add_DropDownOpened({
 # Paths for OpenCode-Unlimited
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
 $unlimitedCmdCandidates = @(
-    (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
-    (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
-    (Join-Path $userHome "Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
-    (Join-Path $userHome "Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
-    (Join-Path $userHome "OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
-    (Join-Path $userHome "OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
     (Join-Path $env:LOCALAPPDATA "opencode-unlimited\bin\opencode-unlimited.ps1"),
     (Join-Path $env:LOCALAPPDATA "opencode-unlimited\bin\opencode-unlimited.cmd"),
+    (Join-Path $userHome "OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+    (Join-Path $userHome "OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+    (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+    (Join-Path $scriptRoot "..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+    (Join-Path $scriptRoot "OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+    (Join-Path $scriptRoot "OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
     "opencode-unlimited.ps1",
     "opencode-unlimited.cmd"
 )
@@ -918,25 +918,41 @@ function Check-StatusAsync([bool]$Silent = $false) {
     
     $eventHandler = {
         param($sender, $e)
+        $raw = $null
         if ($e.Error -ne $null) {
-            if (-not $Silent) {
-                $window.Dispatcher.Invoke([Action]{
-                    $lblIp.Text = "Offline / Connection Error"
-                    Update-QuotaBadge "offline" "Offline"
-                    Set-Status "● Awaiting network / VPN..."
-                    Append-Log "Network error: $($e.Error.Message)"
-                })
+            try {
+                $wc = New-Object System.Net.WebClient
+                $wc.Headers.Add("User-Agent", "curl/8.0")
+                $raw = $wc.DownloadString("https://ipwho.is/")
+            } catch {
+                try {
+                    $wc2 = New-Object System.Net.WebClient
+                    $wc2.Headers.Add("User-Agent", "curl/8.0")
+                    $raw = $wc2.DownloadString("https://api.ipify.org?format=json")
+                } catch {}
             }
-            return
+            if (-not $raw) {
+                if (-not $Silent) {
+                    $window.Dispatcher.Invoke([Action]{
+                        $lblIp.Text = "Offline / Connection Error"
+                        Update-QuotaBadge "offline" "Offline"
+                        Set-Status "● Awaiting network / VPN..."
+                        Append-Log "Network error: $($e.Error.Message)"
+                    })
+                }
+                return
+            }
+        } else {
+            $raw = $e.Result
         }
 
         try {
             $jser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
-            $data = $jser.DeserializeObject($e.Result)
+            $data = $jser.DeserializeObject($raw)
             $ip = if ($data.ContainsKey("ip")) { $data["ip"] } else { "Offline" }
             $city = if ($data.ContainsKey("city")) { $data["city"] } else { "" }
-            $country = if ($data.ContainsKey("country")) { $data["country"] } else { "" }
-            $ipText = if ($ip -eq "Offline") { "🌐 Offline / Connection Error" } elseif ($city) { "$ip  •  $city, $country" } else { "$ip  •  $country" }
+            $country = if ($data.ContainsKey("country_code")) { $data["country_code"] } elseif ($data.ContainsKey("country")) { $data["country"] } else { "" }
+            $ipText = if ($ip -eq "Offline") { "🌐 Offline / Connection Error" } elseif ($city -and $country) { "$ip  •  $city, $country" } elseif ($country) { "$ip  •  $country" } else { $ip }
 
             $curSub = Get-Subnet24 $ip
             $lastSub = Get-Subnet24 $script:lastKnownIp
@@ -1286,9 +1302,9 @@ $btnLaunch.Add_Click({
 Append-Log "OpenCode Helper (Windows) initialized. Ready."
 Check-StatusAsync $false
 
-# Background VPN connection watcher (8 seconds, gentle polling with smart smoothing)
+# Background VPN connection watcher (25 seconds, gentle polling with smart smoothing)
 $vpnTimer = New-Object System.Windows.Threading.DispatcherTimer
-$vpnTimer.Interval = [TimeSpan]::FromSeconds(8)
+$vpnTimer.Interval = [TimeSpan]::FromSeconds(25)
 $vpnTimer.Add_Tick({
     Check-StatusAsync $true
 })

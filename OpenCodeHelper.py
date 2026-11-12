@@ -20,16 +20,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Candidate paths for opencode-unlimited.cmd / .ps1
 UNLIMITED_CMD_CANDIDATES = [
-    os.path.join(SCRIPT_DIR, "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
-    os.path.join(SCRIPT_DIR, "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
-    os.path.join(SCRIPT_DIR, "..", "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
-    os.path.join(SCRIPT_DIR, "..", "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
-    os.path.join(USER_HOME, "Infosoft", "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
-    os.path.join(USER_HOME, "Infosoft", "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "opencode-unlimited", "bin", "opencode-unlimited.ps1"),
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "opencode-unlimited", "bin", "opencode-unlimited.cmd"),
     os.path.join(USER_HOME, "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
     os.path.join(USER_HOME, "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
-    r"D:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.ps1",
-    r"D:\opencode-manager\OpenCode-Unlimited\bin\opencode-unlimited.cmd",
+    os.path.join(SCRIPT_DIR, "..", "OpenCode-Unlimited", "bin", "opencode-unlimited.ps1"),
+    os.path.join(SCRIPT_DIR, "..", "OpenCode-Unlimited", "bin", "opencode-unlimited.cmd"),
     "opencode-unlimited.ps1",
     "opencode-unlimited.cmd"
 ]

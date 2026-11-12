@@ -348,7 +348,7 @@ namespace OpenCodeManager
                 await CheckStatusAsync(silent: false);
 
                 vpnMonitorTimer = new System.Windows.Threading.DispatcherTimer();
-                vpnMonitorTimer.Interval = TimeSpan.FromSeconds(8);
+                vpnMonitorTimer.Interval = TimeSpan.FromSeconds(25);
                 vpnMonitorTimer.Tick += async (ts, te) =>
                 {
                     await CheckStatusAsync(silent: true);
@@ -360,16 +360,17 @@ namespace OpenCodeManager
         private void ResolvePaths()
         {
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string[] candidates = new string[]
             {
-                System.IO.Path.Combine(appDir, @"..\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
-                System.IO.Path.Combine(appDir, @"..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
-                System.IO.Path.Combine(userHome, @"Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
-                System.IO.Path.Combine(userHome, @"Infosoft\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(localAppData, @"opencode-unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(localAppData, @"opencode-unlimited\bin\opencode-unlimited.cmd"),
                 System.IO.Path.Combine(userHome, @"OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
                 System.IO.Path.Combine(userHome, @"OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
-                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"opencode-unlimited\bin\opencode-unlimited.ps1"),
-                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"opencode-unlimited\bin\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(appDir, @"..\OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(appDir, @"..\OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
+                System.IO.Path.Combine(appDir, @"OpenCode-Unlimited\bin\opencode-unlimited.ps1"),
+                System.IO.Path.Combine(appDir, @"OpenCode-Unlimited\bin\opencode-unlimited.cmd"),
                 "opencode-unlimited.ps1",
                 "opencode-unlimited.cmd"
             };
@@ -941,10 +942,25 @@ namespace OpenCodeManager
                     UpdateQuotaBadge("probing", "Checking");
                 }
 
-                using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) })
+                using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(6) })
                 {
                     http.DefaultRequestHeaders.Add("User-Agent", "curl/8.0");
-                    string json = await http.GetStringAsync("https://ipinfo.io/json");
+                    string json = null;
+                    Exception lastEx = null;
+                    string[] urls = new string[] { "https://ipinfo.io/json", "https://ipwho.is/", "https://api.ipify.org?format=json" };
+                    foreach (var u in urls)
+                    {
+                        try
+                        {
+                            json = await http.GetStringAsync(u);
+                            if (!string.IsNullOrEmpty(json)) break;
+                        }
+                        catch (Exception ex)
+                        {
+                            lastEx = ex;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(json)) throw lastEx ?? new Exception("Unable to resolve public IP");
                     File.AppendAllText(logPath, "ipinfo downloaded\n");
 
                     var jser = new JavaScriptSerializer();
@@ -952,8 +968,10 @@ namespace OpenCodeManager
 
                     string ip = dict.ContainsKey("ip") ? dict["ip"].ToString() : "Offline";
                     string city = dict.ContainsKey("city") ? dict["city"].ToString() : "";
-                    string country = dict.ContainsKey("country") ? dict["country"].ToString() : "";
-                    string ipText = string.Format("{0}  \u2022  {1}, {2}", ip, city, country);
+                    string country = dict.ContainsKey("country_code") ? dict["country_code"].ToString() : (dict.ContainsKey("country") ? dict["country"].ToString() : "");
+                    string ipText = string.IsNullOrEmpty(city) && string.IsNullOrEmpty(country)
+                        ? ip
+                        : string.Format("{0}  \u2022  {1}, {2}", ip, city, country);
 
                     string curSub = GetSubnet24(ip);
                     string lastSub = GetSubnet24(lastKnownIp);
