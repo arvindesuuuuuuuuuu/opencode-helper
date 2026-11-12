@@ -369,11 +369,11 @@ class OpenCodeHelperWin:
                     def _ui():
                         self.lbl_ip.config(text=ip_text)
                         if is_spent:
-                            self.lbl_quota.config(text="● Rate-Limited", fg="#fb7185", bg="#331d24")
+                            self.lbl_quota.config(text="● Free Limit Reached", fg="#fb7185", bg="#331d24")
                             self.set_status("● Awaiting VPN connection...")
                             if not silent or ip_changed:
                                 self.log(f"Network: {ip_text}")
-                                self.log("✖ Quota: Rate-Limited (Free limit exhausted on current IP)")
+                                self.log("✖ Quota: Free Limit Reached (Switch VPN to acquire a fresh IP)")
                                 self.log("Awaiting VPN connection to acquire a fresh IP...")
                         else:
                             self.lbl_quota.config(text="● Ready (Free Tier Available)", fg="#34d399", bg="#132e22")

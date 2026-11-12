@@ -5,7 +5,7 @@ OpenCode Helper is a desktop utility for Linux and Windows that helps you manage
 ## What it does
 
 - **Clean reset**: Closes running OpenCode processes, clears error banners, and generates new device and session IDs while keeping all your past chat messages and tabs intact.
-- **Quota status**: Checks your current IP address, inspects the local spent ledger, and monitors OpenCode engine logs to let you know if the free quota is ready or rate-limited.
+- **Quota status**: Checks your current IP address and compares it with your local ledger and active session to let you know if the free quota is **Ready** or **Free Limit Reached**.
 - **VPN monitoring**: Automatically detects connection and IP changes when you connect any VPN without manual switching setup.
 - **Clear banners**: Removes error banners from your sessions without resetting session IDs.
 - **OpenCode launcher**: Starts OpenCode in a separate process without closing the helper window.

@@ -594,7 +594,7 @@ namespace OpenCodeManager
                 BorderThickness = new Thickness(0, 1, 0, 0)
             };
             var guideSteps = new StackPanel();
-            guideSteps.Children.Add(CreateGuideRow("1.", "If Quota is Rate-Limited \u2192 Connect/switch any VPN (Auto-detected)"));
+            guideSteps.Children.Add(CreateGuideRow("1.", "If Free Limit Reached \u2192 Connect/switch any VPN (Auto-detected)"));
             guideSteps.Children.Add(CreateGuideRow("2.", "Click '\u26A1 1-Click Clean Reset' (Preserves chat history & tabs)"));
             guideSteps.Children.Add(CreateGuideRow("3.", "Click '\u25B6 Launch OpenCode' & reopen your session from list"));
             guideSteps.Children.Add(CreateGuideTip("\u2022", "Use 'Clear Banners' if only an error banner is stuck"));
@@ -909,7 +909,7 @@ namespace OpenCodeManager
                                         if (item != null && item.ContainsKey("spent") && (bool)item["spent"])
                                         {
                                             isRateLimited = true;
-                                            quotaDetails = "Rate-Limited (Recorded in local spent ledger)";
+                                            quotaDetails = "Free Limit Reached (Recorded in local spent ledger)";
                                         }
                                     }
                                 }
@@ -943,7 +943,7 @@ namespace OpenCodeManager
                                         if (sqlite3_step(stmt) == 100) // SQLITE_ROW
                                         {
                                             isRateLimited = true;
-                                            quotaDetails = "Rate-Limited (Free limit exhausted on current session)";
+                                            quotaDetails = "Free Limit Reached (Free limit exhausted on current session)";
                                         }
                                         sqlite3_finalize(stmt);
                                     }
@@ -959,7 +959,7 @@ namespace OpenCodeManager
                         lblIp.Text = ipText;
                         if (isRateLimited)
                         {
-                            UpdateQuotaBadge("limited", "Rate-Limited");
+                            UpdateQuotaBadge("limited", "Free Limit Reached");
                             SetStatus("\u25CF Awaiting VPN connection...");
                             Log("Network: " + ipText);
                             Log("\u2716 Quota: " + quotaDetails);

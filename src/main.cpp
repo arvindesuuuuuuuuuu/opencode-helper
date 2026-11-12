@@ -289,7 +289,7 @@ static gboolean on_status_checked(gpointer user_data) {
         log_line("🔄 Connection change detected: " + data->ip_info);
         if (data->is_rate_limited) {
             set_status("● Awaiting VPN connection...");
-            log_line("✖ Quota: Rate-Limited (Free limit exhausted on current IP)");
+            log_line("✖ Quota: Free Limit Reached (Switch VPN to get a new IP)");
             log_line("Awaiting VPN connection to acquire a fresh IP...");
         } else {
             set_status("● Ready");
@@ -383,7 +383,7 @@ void check_status_worker(bool silent) {
                     if (segment.find("\"spent\": true") != std::string::npos ||
                         segment.find("\"spent\":true") != std::string::npos) {
                         data->is_rate_limited = true;
-                        data->quota_text = "● Rate-Limited (Spent IP)";
+                        data->quota_text = "● Free Limit Reached (Spent IP)";
                     }
                 }
             }
@@ -402,7 +402,7 @@ void check_status_worker(bool silent) {
                 sqlite3_bind_int64(stmt, 1, threshold_ms);
                 if (sqlite3_step(stmt) == SQLITE_ROW) {
                     data->is_rate_limited = true;
-                    data->quota_text = "● Rate-Limited (Limit Reached)";
+                    data->quota_text = "● Free Limit Reached";
                 }
                 sqlite3_finalize(stmt);
             }
@@ -922,7 +922,7 @@ int main(int argc, char *argv[]) {
     // Step 1
     GtkWidget *row1 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
     GtkWidget *n1 = gtk_label_new("1."); gtk_style_context_add_class(gtk_widget_get_style_context(n1), "guide-num");
-    GtkWidget *t1 = gtk_label_new("If Quota is ❌ Limited → Connect any VPN");
+    GtkWidget *t1 = gtk_label_new("If Quota is ❌ Free Limit Reached → Connect any VPN");
     gtk_widget_set_halign(t1, GTK_ALIGN_START);
     gtk_style_context_add_class(gtk_widget_get_style_context(t1), "guide-text");
     gtk_box_pack_start(GTK_BOX(row1), n1, FALSE, FALSE, 0);

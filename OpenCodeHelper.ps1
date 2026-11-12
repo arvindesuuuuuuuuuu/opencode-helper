@@ -434,7 +434,7 @@ $xaml = @"
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,1.5">
                                     <TextBlock Text="1." FontSize="9.0" FontWeight="Bold" Foreground="#60a5fa" Width="16"/>
-                                    <TextBlock Text="If Quota is Limited → Select VPN &amp; click 'Switch'" FontSize="9.0" Foreground="#cbd5e1"/>
+                                    <TextBlock Text="If Free Limit Reached → Connect/switch any VPN" FontSize="9.0" Foreground="#cbd5e1"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,1.5">
                                     <TextBlock Text="2." FontSize="9.0" FontWeight="Bold" Foreground="#60a5fa" Width="16"/>
@@ -883,7 +883,7 @@ function Check-StatusAsync([bool]$Silent = $false) {
                             $ipKey = "$ip/32"
                             if ($addr.ContainsKey($ipKey) -and $addr[$ipKey]["spent"] -eq $true) {
                                 $isRateLimited = $true
-                                $quotaDetails = "Rate-Limited (Recorded in local spent ledger)"
+                                $quotaDetails = "Free Limit Reached (Recorded in local spent ledger)"
                             }
                         }
                     } catch {}
@@ -895,7 +895,7 @@ function Check-StatusAsync([bool]$Silent = $false) {
             $window.Dispatcher.Invoke([Action]{
                 $lblIp.Text = $ipText
                 if ($isRateLimited) {
-                    Update-QuotaBadge "limited" "Rate-Limited"
+                    Update-QuotaBadge "limited" "Free Limit Reached"
                     Set-Status "● Awaiting VPN connection..."
                     Append-Log "Network: $ipText"
                     Append-Log "✖ Quota: $quotaDetails"

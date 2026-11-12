@@ -91,7 +91,7 @@ class CompactOpenCodeHelper:
 
         tk.Label(guide, text="📋 How to use:", font=("Segoe UI", 9, "bold"), fg=self.accent, bg=self.card).pack(anchor="w")
         instructions = (
-            "1. If Quota is ❌ Limited → Connect any VPN\n"
+            "1. If Quota is ❌ Free Limit Reached → Connect any VPN\n"
             "2. Click '🚀 1-Click Reset'\n"
             "3. Click '▶ Launch OpenCode' & reopen your chat"
         )
@@ -298,7 +298,7 @@ class CompactOpenCodeHelper:
                             entry = egress.get("addresses", {}).get(key, {})
                             if entry.get("spent"):
                                 is_rate_limited = True
-                                quota_text = "❌ Rate-Limited (Spent IP)"
+                                quota_text = "❌ Free Limit Reached (Spent IP)"
                                 quota_color = self.red
                 except Exception:
                     pass
@@ -312,7 +312,7 @@ class CompactOpenCodeHelper:
                     c.execute("SELECT 1 FROM session_message WHERE time_created > ? AND (cast(data as text) LIKE '%provider.free-limit%' OR cast(data as text) LIKE '%Free usage limit reached%') LIMIT 1;", (threshold,))
                     if c.fetchone():
                         is_rate_limited = True
-                        quota_text = "❌ Rate-Limited (Limit Reached)"
+                        quota_text = "❌ Free Limit Reached"
                         quota_color = self.red
                     conn.close()
                 except Exception:
